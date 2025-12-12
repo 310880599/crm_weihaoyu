@@ -346,7 +346,7 @@
             </div>
             <!-- 省市选择 -->
             <div class="layui-form-item">
-                <label class="layui-form-label">所在省市</label>
+                <label class="layui-form-label">所在省市<span style="color:red;">*</span></label>
                 <div class="layui-input-4">
                     <div style="display: flex; gap: 10px;">
                         <div style="flex: 1;">
@@ -366,7 +366,7 @@
             <div class="layui-form-item">
                 <label class="layui-form-label">收货地址<span style="color:red;">*</span></label>
                 <div class="layui-input-4">
-                    <textarea id="country" name="country" placeholder="请输入发货详细地址" class="layui-textarea"></textarea>
+                    <textarea id="country" name="country" placeholder="请输入发货详细地址" class="layui-textarea" lay-verify="required"></textarea>
                 </div>
             </div>
             <!-- 用户属性选择 -->
@@ -385,7 +385,7 @@
                 <label class="layui-form-label">客户公司<span style="color:red;">*</span></label>
                 <div class="layui-input-4" style="position: relative;"><!-- 替换：增加 position: relative; 以定位下拉列表 -->
                     <input type="text" id="client_company" name="client_company" value=""
-                        placeholder="请输入客户公司" class="layui-input">
+                        placeholder="请输入客户公司" class="layui-input" lay-verify="required">
                     <div id="companyList" class="suggestion-list" 
                         style="position:absolute; top:38px; left:0; z-index:9999; background:#FFF; border:1px solid #ccc; display:none;"><!-- 新增：联想下拉列表容器 -->
                     </div>
@@ -393,7 +393,7 @@
             </div>
         
             <div class="layui-form-item">
-                <label class="layui-form-label">客户负责人</label>
+                <label class="layui-form-label">客户负责人<span style="color:red;">*</span></label>
                 <div class="layui-input-4">
                     <input type="text" id="pr_user" name="pr_user" lay-verify="required" value="{$username}"
                         class="layui-input" readonly>
@@ -401,9 +401,9 @@
             </div>
             <!-- 询盘来源 -->
             <div class="layui-form-item">
-                <label class="layui-form-label">询盘来源</label>
+                <label class="layui-form-label">询盘来源<span style="color:red;">*</span></label>
                 <div class="layui-input-4">
-                    <select name="source" id="source" lay-filter="kh_status" lay-search="">
+                    <select name="source" id="source" lay-filter="kh_status" lay-search="" lay-verify="required">
                         <option value="">请选择询盘来源</option>
                         {volist name='sourceList' id='vo'}
                         <option value="{$vo|htmlentities}">{$vo|htmlentities}</option>
@@ -413,7 +413,7 @@
             </div>
             <!-- 运营端口：可搜索单选下拉（根据询盘来源动态更新） -->
             <div class="layui-form-item">
-                <label class="layui-form-label">运营端口</label>
+                <label class="layui-form-label">运营端口<span style="color:red;">*</span></label>
                 <div class="layui-input-4">
                     <select name="source_port" id="source_port" lay-search lay-verify="required">
                         <option value="">请先选择询盘来源（选择后可搜索端口）</option>
@@ -422,7 +422,7 @@
             </div>
             <!-- 收款账户 -->
             <div class="layui-form-item">
-                <label class="layui-form-label">收款账户</label>
+                <label class="layui-form-label">收款账户<span style="color:red;">*</span></label>
                 <div class="layui-input-4">
                     <select name="bank_account" id="bank_account" lay-verify="required" lay-search="">
                         <option value="">请选择收款账户</option>
@@ -442,7 +442,7 @@
             </div>
             <!-- 团队名称 -->
             <div class="layui-form-item">
-                <label class="layui-form-label">团队名称</label>
+                <label class="layui-form-label">团队名称<span style="color:red;">*</span></label>
                 <div class="layui-input-4">
                     <select name="team_name" id="team_name" lay-verify="required" lay-search="">
                         <option value="">请选择团队名称</option>
@@ -454,7 +454,7 @@
             </div>
             <!-- 客户性质 -->
             <div class="layui-form-item">
-                <label class="layui-form-label">客户性质</label>
+                <label class="layui-form-label">客户性质<span style="color:red;">*</span></label>
                 <div class="layui-input-4">
                     <select name="customer_type" id="customer_type" lay-verify="required" lay-search="">
                         <option value="">请选择客户性质</option>
@@ -466,27 +466,27 @@
             </div>
             <!-- 成交时间 -->
             <div class="layui-form-item">
-                <label class="layui-form-label">成交时间</label>
+                <label class="layui-form-label">成交时间<span style="color:red;">*</span></label>
                 <div class="layui-input-4">
-                    <input type="text" id="orderTime" name="order_time" placeholder="请输入成交时间" class="layui-input">
+                    <input type="text" id="orderTime" name="order_time" placeholder="请输入成交时间" class="layui-input" lay-verify="required" autocomplete="off" readonly>
                 </div>
             </div>
             <!-- 产品明细表格 -->
             <div class="layui-form-item">
-                <label class="layui-form-label">产品明细</label>
+                <label class="layui-form-label">产品明细<span style="color:red;">*</span></label>
                 <div class="layui-input-block">
                     <table id="product-table" class="layui-table">
                         <thead>
                             <tr>
-                                <th>产品名称</th>
-                                <th>产品经理</th>
+                                <th>产品名称<span style="color:red;">*</span></th>
+                                <th>产品经理<span style="color:red;">*</span></th>
                                 <th>规格型号</th>
-                                <th>单位</th>
-                                <th>数量</th>
-                                <th>销售单价</th>
-                                <th>销售价合计</th>
-                                <th>进价合计</th>
-                                <th>利润</th>
+                                <th>单位<span style="color:red;">*</span></th>
+                                <th>数量<span style="color:red;">*</span></th>
+                                <th>销售单价<span style="color:red;">*</span></th>
+                                <th>销售价合计<span style="color:red;">*</span></th>
+                                <th>进价合计<span style="color:red;">*</span></th>
+                                <th>利润<span style="color:red;">*</span></th>
                                 <th>行备注</th>
                                 <th>操作</th>
                             </tr>
@@ -682,21 +682,21 @@
             </div>
             <!-- 订单金额、利润、利润率 -->
             <div class="layui-form-item">
-                <label class="layui-form-label">订单金额(￥)</label>
+                <label class="layui-form-label">订单金额(￥)<span style="color:red;">*</span></label>
                 <div class="layui-input-4">
                     <input type="text" id="money" name="money" lay-verify="number|required" placeholder="请输入订单总金额"
                         class="layui-input">
                 </div>
             </div>
             <div class="layui-form-item">
-                <label class="layui-form-label">利润(￥)</label>
+                <label class="layui-form-label">利润(￥)<span style="color:red;">*</span></label>
                 <div class="layui-input-4">
                     <input type="text" id="profit" name="profit" lay-verify="required" placeholder="请输入利润"
                         class="layui-input">
                 </div>
             </div>
             <div class="layui-form-item">
-                <label class="layui-form-label">利润率(%)</label>
+                <label class="layui-form-label">利润率(%)<span style="color:red;">*</span></label>
                 <div class="layui-input-4" style="position: relative;">
                     <input type="text" id="margin_rate" name="margin_rate" lay-verify="required" placeholder="请输入利润率"
                         class="layui-input">
@@ -763,8 +763,8 @@
             laydate.render({
                 elem: '#orderTime',
                 type: 'datetime',
-                format: 'yyyy-MM-dd HH:mm:ss',
-                value: new Date()
+                trigger: 'click',
+                format: 'yyyy-MM-dd HH:mm:ss'
             });
             // 自定义验证规则（数字校验）
             form.verify({
