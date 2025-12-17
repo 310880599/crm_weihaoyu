@@ -223,6 +223,33 @@
         /* 跟进弹窗样式优化 */
         #follow-dialog {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* 确保跟进弹窗的层级 - 使用特定类名和更高优先级 */
+        .layui-layer.follow-dialog-layer {
+            z-index: 2147483647 !important; /* 使用最大 z-index 值 */
+            position: fixed !important;
+        }
+        
+        /* 确保跟进弹窗对应的遮罩层始终在弹窗下方 */
+        .layui-layer-shade.follow-dialog-shade {
+            z-index: 2147483646 !important; /* 比弹窗小1 */
+            position: fixed !important;
+        }
+        
+        /* 强制设置特定 ID 的遮罩层 z-index 为 1 */
+        #layui-layer-shade100002 {
+            z-index: 1 !important;
+        }
+        
+        /* 确保跟进弹窗的关闭按钮 */
+        .follow-dialog-layer .layui-layer-close {
+            z-index: 2147483647 !important;
+            position: relative !important;
+            pointer-events: auto !important;
+            cursor: pointer !important;
         }
 
         .follow-container {
@@ -717,27 +744,177 @@
                             $('#follow-history-list').html(html);
                             
                             // 显示弹窗
-                            layer.open({
+                            var layerIndex = layer.open({
                                 type: 1,
                                 title: '客户跟进 - ' + clientData.kh_name,
                                 area: ['90%', '80%'],
                                 content: $('#follow-dialog'),
                                 closeBtn: 1, // 显式启用关闭按钮
-                                zIndex: 20000000, // 设置更高的z-index值，确保在最上层
+                                shade: [0.3, '#000'], // 设置遮罩层
+                                shadeClose: false, // 不允许点击遮罩关闭
                                 success: function(layero, index) {
                                     // 确保弹窗内容正确显示
                                     $('#follow-dialog').show();
-                                    // 确保弹窗在最上层
-                                    layero.css('z-index', 20000000);
-                                    // 确保遮罩层也在最上层
-                                    $('.layui-layer-shade').css('z-index', 19999999);
-                                    // 确保关闭按钮可以点击
-                                    layero.find('.layui-layer-close').css({
-                                        'z-index': 20000001,
-                                        'pointer-events': 'auto'
+                                    
+                                    // 添加特定类名以应用 CSS 样式
+                                    layero.addClass('follow-dialog-layer');
+                                    
+                                    // 使用最大 z-index 值
+                                    var maxZIndex = 2147483647; // JavaScript 中 z-index 的最大值
+                                    
+                                    // 修复层级的函数 - 直接设置 style 属性
+                                    function fixZIndex() {
+                                        if (!layero || !layero.is(':visible')) {
+                                            return;
+                                        }
+                                        
+                                        // 强制设置所有遮罩层的 z-index 为 1（除了跟进弹窗的遮罩层）
+                                        $('.layui-layer-shade').each(function() {
+                                            var shadeElement = this;
+                                            // 如果不是跟进弹窗的遮罩层，强制设置为 1
+                                            if (!$(shadeElement).hasClass('follow-dialog-shade')) {
+                                                shadeElement.style.setProperty('z-index', '1', 'important');
+                                            }
+                                        });
+                                        
+                                        // 特别处理特定 ID 的遮罩层，强制设置为 1
+                                        var $specificShade = $('#layui-layer-shade100002');
+                                        if ($specificShade.length && $specificShade[0]) {
+                                            $specificShade[0].style.setProperty('z-index', '1', 'important');
+                                        }
+                                        
+                                        // 确保弹窗有正确的类名
+                                        layero.addClass('follow-dialog-layer');
+                                        
+                                        // 直接设置 style 属性，覆盖任何内联样式
+                                        // 使用原生 DOM 方法直接设置，避免被其他代码覆盖
+                                        var layerElement = layero[0];
+                                        if (layerElement) {
+                                            layerElement.style.setProperty('z-index', maxZIndex, 'important');
+                                            layerElement.style.setProperty('position', 'fixed', 'important');
+                                        }
+                                        
+                                        // 确保遮罩层的 z-index 低于弹窗
+                                        // 尝试多种方式查找遮罩层
+                                        var $shade = layero.prev('.layui-layer-shade');
+                                        if (!$shade.length) {
+                                            // 查找所有遮罩层，选择最后一个（通常是当前弹窗的）
+                                            var $allShades = $('.layui-layer-shade');
+                                            if ($allShades.length > 0) {
+                                                $shade = $allShades.last();
+                                            }
+                                        }
+                                        
+                                        // 如果还是找不到，尝试通过父元素查找
+                                        if (!$shade.length && layero.parent().length) {
+                                            $shade = layero.parent().find('.layui-layer-shade').last();
+                                        }
+                                        
+                                        if ($shade.length && $shade[0]) {
+                                            $shade.addClass('follow-dialog-shade');
+                                            // 使用原生 DOM 方法直接设置
+                                            var shadeElement = $shade[0];
+                                            shadeElement.style.setProperty('z-index', (maxZIndex - 1), 'important');
+                                            shadeElement.style.setProperty('position', 'fixed', 'important');
+                                        }
+                                        
+                                        // 确保关闭按钮可以点击
+                                        var $closeBtn = layero.find('.layui-layer-close');
+                                        if ($closeBtn.length) {
+                                            $closeBtn.css({
+                                                'z-index': maxZIndex,
+                                                'position': 'relative',
+                                                'pointer-events': 'auto',
+                                                'cursor': 'pointer'
+                                            });
+                                        }
+                                    }
+                                    
+                                    // 立即执行一次
+                                    fixZIndex();
+                                    
+                                    // 使用 setTimeout 确保 DOM 完全渲染后再设置
+                                    setTimeout(fixZIndex, 10);
+                                    setTimeout(fixZIndex, 50);
+                                    setTimeout(fixZIndex, 100);
+                                    setTimeout(fixZIndex, 200);
+                                    setTimeout(fixZIndex, 500);
+                                    
+                                    // 使用定时器持续监控并修复层级（每100ms检查一次，更频繁）
+                                    var zIndexTimer = setInterval(function() {
+                                        if (layero.is(':visible')) {
+                                            fixZIndex();
+                                        } else {
+                                            // 弹窗已关闭，清除定时器
+                                            clearInterval(zIndexTimer);
+                                        }
+                                    }, 100);
+                                    
+                                    // 使用 MutationObserver 监听 DOM 变化
+                                    var observer = new MutationObserver(function(mutations) {
+                                        // 立即修复层级
+                                        fixZIndex();
                                     });
+                                    
+                                    // 监听弹窗和遮罩层的属性变化（包括子元素）
+                                    if (layero[0]) {
+                                        observer.observe(layero[0], {
+                                            attributes: true,
+                                            attributeFilter: ['style', 'class'],
+                                            subtree: true, // 监听子元素变化
+                                            childList: false
+                                        });
+                                    }
+                                    
+                                    // 查找并监听遮罩层
+                                    var findAndObserveShade = function() {
+                                        var $shade = layero.prev('.layui-layer-shade');
+                                        if (!$shade.length) {
+                                            $shade = $('.layui-layer-shade').last();
+                                        }
+                                        if ($shade.length && $shade[0]) {
+                                            observer.observe($shade[0], {
+                                                attributes: true,
+                                                attributeFilter: ['style', 'class'],
+                                                subtree: false
+                                            });
+                                        }
+                                    };
+                                    
+                                    // 延迟查找遮罩层，因为可能还没创建
+                                    setTimeout(findAndObserveShade, 50);
+                                    setTimeout(findAndObserveShade, 200);
+                                    
+                                    // 保存 observer、timer 和修复函数，以便在关闭时清理和在提交后调用
+                                    layero.data('zIndexObserver', observer);
+                                    layero.data('zIndexTimer', zIndexTimer);
+                                    layero.data('fixZIndex', fixZIndex); // 保存修复函数
+                                    layero.data('layerIndex', layerIndex); // 保存弹窗索引
+                                    
+                                    // 将修复函数和弹窗索引也保存到全局，以便提交跟进记录时调用
+                                    window.currentFollowDialogFixZIndex = fixZIndex;
+                                    window.currentFollowDialogLayerIndex = layerIndex;
                                 },
                                 end: function() {
+                                    // 清理定时器和观察者
+                                    var layero = $('.layui-layer[data-index="' + layerIndex + '"]');
+                                    if (layero.length) {
+                                        var observer = layero.data('zIndexObserver');
+                                        var timer = layero.data('zIndexTimer');
+                                        if (observer) {
+                                            observer.disconnect();
+                                        }
+                                        if (timer) {
+                                            clearInterval(timer);
+                                        }
+                                    }
+                                    // 清理全局修复函数和弹窗索引引用
+                                    if (window.currentFollowDialogFixZIndex) {
+                                        delete window.currentFollowDialogFixZIndex;
+                                    }
+                                    if (window.currentFollowDialogLayerIndex) {
+                                        delete window.currentFollowDialogLayerIndex;
+                                    }
                                     // 弹窗完全关闭后，确保元素被正确隐藏并移除遮挡
                                     $('#follow-dialog').hide().appendTo('body');
                                 }
@@ -775,8 +952,68 @@
                     },
                     success: function (res) {
                         layer.close(loading);
+                        
+                        // 修复层级的函数
+                        var fixZIndexAfterSubmit = function() {
+                            // 强制设置所有遮罩层的 z-index 为 1
+                            $('.layui-layer-shade').each(function() {
+                                var shadeElement = this;
+                                if (shadeElement) {
+                                    shadeElement.style.setProperty('z-index', '1', 'important');
+                                }
+                            });
+                            
+                            // 特别处理特定 ID 的遮罩层
+                            var $specificShade = $('#layui-layer-shade100002');
+                            if ($specificShade.length && $specificShade[0]) {
+                                $specificShade[0].style.setProperty('z-index', '1', 'important');
+                            }
+                            
+                            // 尝试从全局获取修复函数
+                            if (window.currentFollowDialogFixZIndex) {
+                                window.currentFollowDialogFixZIndex();
+                            }
+                            // 也尝试从弹窗元素获取修复函数
+                            var $followLayer = $('.layui-layer.follow-dialog-layer');
+                            if ($followLayer.length) {
+                                var fixFunc = $followLayer.data('fixZIndex');
+                                if (fixFunc) {
+                                    fixFunc();
+                                }
+                            }
+                        };
+                        
                         if (res.code === 0) {
-                            layer.msg(res.msg);
+                            // 立即修复层级
+                            fixZIndexAfterSubmit();
+                            
+                            // 查找跟进弹窗索引的函数
+                            var findFollowLayerIndex = function() {
+                                // 尝试从全局获取弹窗索引
+                                var followLayerIndex = window.currentFollowDialogLayerIndex;
+                                // 也尝试从弹窗元素获取索引
+                                if (!followLayerIndex) {
+                                    var $followLayer = $('.layui-layer.follow-dialog-layer');
+                                    if ($followLayer.length) {
+                                        followLayerIndex = $followLayer.data('layerIndex');
+                                        if (!followLayerIndex && $followLayer.attr('times')) {
+                                            followLayerIndex = $followLayer.attr('times');
+                                        }
+                                    }
+                                }
+                                // 如果还是找不到，直接查找包含 #follow-dialog 的弹窗
+                                if (!followLayerIndex) {
+                                    var $dialogLayer = $('#follow-dialog').closest('.layui-layer');
+                                    if ($dialogLayer.length && $dialogLayer.attr('times')) {
+                                        followLayerIndex = $dialogLayer.attr('times');
+                                    }
+                                }
+                                return followLayerIndex;
+                            };
+                            
+                            // 显示成功消息
+                            layer.msg(res.msg, { time: 1500, icon: 1 });
+                            
                             $('#reply_msg').val('');
                             
                             // 更新历史记录
@@ -800,13 +1037,66 @@
                             
                             // 更新表格中的最新跟进记录
                             tableIn.reload();
+                            
+                            // 延迟关闭弹窗，确保数据已更新
+                            setTimeout(function() {
+                                var followLayerIndex = findFollowLayerIndex();
+                                if (followLayerIndex) {
+                                    layer.close(parseInt(followLayerIndex));
+                                }
+                            }, 500); // 延迟500ms关闭，让用户看到成功消息
                         } else {
-                            layer.msg(res.msg);
+                            layer.msg(res.msg, {
+                                end: function() {
+                                    // layer.msg 关闭后修复层级
+                                    setTimeout(fixZIndexAfterSubmit, 10);
+                                    setTimeout(fixZIndexAfterSubmit, 50);
+                                }
+                            });
+                            // 立即修复层级
+                            fixZIndexAfterSubmit();
                         }
                     },
                     error: function () {
                         layer.close(loading);
-                        layer.msg('提交失败');
+                        
+                        // 修复层级的函数
+                        var fixZIndexAfterSubmit = function() {
+                            // 强制设置所有遮罩层的 z-index 为 1
+                            $('.layui-layer-shade').each(function() {
+                                var shadeElement = this;
+                                if (shadeElement) {
+                                    shadeElement.style.setProperty('z-index', '1', 'important');
+                                }
+                            });
+                            
+                            // 特别处理特定 ID 的遮罩层
+                            var $specificShade = $('#layui-layer-shade100002');
+                            if ($specificShade.length && $specificShade[0]) {
+                                $specificShade[0].style.setProperty('z-index', '1', 'important');
+                            }
+                            
+                            if (window.currentFollowDialogFixZIndex) {
+                                window.currentFollowDialogFixZIndex();
+                            }
+                            var $followLayer = $('.layui-layer.follow-dialog-layer');
+                            if ($followLayer.length) {
+                                var fixFunc = $followLayer.data('fixZIndex');
+                                if (fixFunc) {
+                                    fixFunc();
+                                }
+                            }
+                        };
+                        
+                        layer.msg('提交失败', {
+                            end: function() {
+                                // layer.msg 关闭后修复层级
+                                setTimeout(fixZIndexAfterSubmit, 10);
+                                setTimeout(fixZIndexAfterSubmit, 50);
+                            }
+                        });
+                        // 立即修复层级
+                        fixZIndexAfterSubmit();
                     }
                 });
             });
