@@ -1884,7 +1884,7 @@ class Order extends Common
 
         $list = Db::table('crm_client_order')
             ->where($where)
-            ->order('order_time desc')
+            ->order('create_time desc,id desc')
             ->paginate([
                 'list_rows' => $limit,
                 'page' => $page
