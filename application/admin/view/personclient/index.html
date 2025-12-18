@@ -552,6 +552,39 @@
         margin-right: 5px;
         vertical-align: middle;
     }
+    
+    /* 写跟进弹窗标题栏样式 */
+    .follow-title-bar {
+        position: relative;
+        padding-right: 40px;
+        line-height: 40px;
+        font-weight: 600;
+    }
+    
+    .follow-title-close {
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        cursor: pointer;
+        font-size: 18px;
+        color: #999;
+    }
+    
+    .follow-title-close:hover {
+        color: #000;
+    }
+    
+    /* 自定义遮罩层样式 */
+    .follow-mask {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, .3);
+        display: none;
+    }
 </style>
 <div class="personclient-list-container">
     <!-- 查询区域 -->
@@ -738,13 +771,15 @@
                     </div>
                     <div class="layui-form-item">
                         <input type="hidden" name="leads_id" id="leads_id" value="">
-                        <button class="layui-btn" lay-filter="btn_comment" lay-submit id="submit-comment">提交记录</button>
+                        <button type="button" class="layui-btn" id="submit-comment">提交记录</button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
+<!-- 自定义遮罩层（替代 layui 的 shade） -->
+<div id="follow-mask" class="follow-mask" style="display:none;"></div>
 <!-- 操作列 -->
 <script type="text/html" id="action">
      <a class="layui-btn layui-btn-primary layui-btn-xs follow-btn" href="javascript:void(0);" data-id="{{d.id}}"><i class="layui-icon">&#xe654;</i>写跟进</a>
@@ -777,6 +812,7 @@
 <script>
 layui.use(['table','form','upload','util','laydate','layer'], function () {
     var table = layui.table, form = layui.form, laydate = layui.laydate, $ = layui.jquery, upload = layui.upload, layer = layui.layer;
+    var followIndex = null; // 记住“写跟进弹窗”的 layer index
     var isMobile = $(window).width() < 768;
     var currentUsername = "{$Think.session.username}" || "default";
     var columnWidthKey = "crm_table_column_widths_" + currentUsername;
@@ -846,10 +882,36 @@ layui.use(['table','form','upload','util','laydate','layer'], function () {
         openFollowDialog(clientId);
     });
 
+    // 自定义遮罩层工具函数
+    function ensureFollowMask() {
+        var $mask = $('#follow-mask');
+        if (!$mask.length) {
+            $('body').append('<div id="follow-mask" class="follow-mask" style="display:none;"></div>');
+            $mask = $('#follow-mask');
+        }
+        return $mask;
+    }
+
+    // 把遮罩放到弹层下面（关键：必须在 layer.setTop 之后再调用一次）
+    function showFollowMaskUnderLayer(layero) {
+        var $mask = ensureFollowMask();
+        var z = parseInt($(layero).css('z-index'), 10);
+        if (!isNaN(z)) {
+            $mask.css('z-index', z - 1);
+        } else {
+            $mask.css('z-index', 19999999);
+        }
+        $mask.show();
+    }
+
+    function hideFollowMask() {
+        $('#follow-mask').hide();
+    }
+
       // 打开跟进弹窗
     function openFollowDialog(clientId) {
         // 显示加载提示
-        var loading = layer.load(1, {shade: [0.1, '#fff']});
+        var loading = layer.load(1, {shade: 0});
         
         // 获取客户信息和跟进记录
         $.ajax({
@@ -896,26 +958,57 @@ layui.use(['table','form','upload','util','laydate','layer'], function () {
                         html = '<p>暂无跟进记录</p>';
                     }
                     $('#follow-history-list').html(html);
-                    
+
+
+                    // 如果上一次弹窗没关干净，先强制关闭
+                    if (followIndex !== null) {
+                        layer.close(followIndex);
+                        followIndex = null;
+                    }
+                                        
                     // 显示弹窗
-                    layer.open({
+                    followIndex = layer.open({
                         type: 1,
                         title: '客户跟进 - ' + clientData.kh_name,
                         area: ['90%', '80%'],
                         content: $('#follow-dialog'),
-                        zIndex: layer.zIndex,
-                        key: true, // 启用键盘事件，包括ESC关闭
+                        closeBtn: 1,
+                        shade: 0,              // ✅禁用 layui 自动遮罩
+                        shadeClose: false,
+                        key: true,
+                        anim: -1,
+
                         success: function(layero, index) {
-                            // 确保弹窗内容正确显示
                             $('#follow-dialog').show();
-                            // 确保弹窗在最上层
+
+                            // ✅让弹窗置顶（layui 会重排 z-index）
                             layer.setTop(layero);
+
+                            // ✅关键：setTop 之后再把自定义遮罩放到弹窗下面
+                            showFollowMaskUnderLayer(layero);
+
+                            // ✅接管右上角 X：保证点击一定会走 layer.close
+                            $(layero).find('.layui-layer-close').off('click.follow').on('click.follow', function(e) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                layer.close(index);
+                            });
                         },
+
                         end: function() {
-                            // 弹窗完全关闭后，确保元素被正确隐藏并移除遮挡
+                            // ✅把 DOM 放回去
                             $('#follow-dialog').hide().appendTo('body');
+
+                            // ✅移除自定义遮罩
+                            hideFollowMask();
+
+                            // ✅历史兜底：清掉所有残留的 layui 遮罩（因为你之前多次残留过）
+                            $('.layui-layer-shade').remove();
+
+                            followIndex = null;
                         }
                     });
+
                 } else {
                     layer.msg(res.msg || '获取客户信息失败');
                 }
@@ -927,7 +1020,9 @@ layui.use(['table','form','upload','util','laydate','layer'], function () {
         });
     }
     // 提交跟进记录
-    $('#submit-comment').on('click', function() {
+    $('#submit-comment').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
         var replyMsg = $('#reply_msg').val();
         var leadsId = $('#leads_id').val();
         
