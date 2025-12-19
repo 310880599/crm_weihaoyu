@@ -264,7 +264,8 @@ class Order extends Common
             $data['country']          = Request::param('country');        // 发货地址
             $data['customer_type']    = Request::param('customer_type');  // 客户性质
             $data['source']           = Request::param('source');         // 询盘来源（运营渠道，存储为文字）
-            $data['pr_user']          = Request::param('pr_user') ?: Session::get('username');
+            // 强制覆盖 pr_user 为当前登录人，无论前端传什么值
+            $data['pr_user']          = Session::get('username');
             $data['oper_user']        = Request::param('oper_user');      // 运营人员
             $data['bank_account']     = Request::param('bank_account');   // 收款账户
             
@@ -281,7 +282,18 @@ class Order extends Common
                     $data['source_port'] = $portInfo['port_name'];  // 保存端口名称（文字）
                 }
             }
-            $data['team_name']        = Request::param('team_name');      // 团队名称
+            // 强制覆盖 team_name 为当前登录人的团队名称
+            $currentUsername = Session::get('username');
+            $loginTeamName = '';
+            // 从 admin 表读取登录人的团队名称
+            $adminInfo = Db::name('admin')->where('username', $currentUsername)->field('team_name')->find();
+            if ($adminInfo && !empty($adminInfo['team_name'])) {
+                $loginTeamName = $adminInfo['team_name'];
+            } else {
+                // fallback: 如果查不到，尝试从 session 获取
+                $loginTeamName = Session::get('team_name') ?: '';
+            }
+            $data['team_name']        = $loginTeamName;  // 强制使用登录人团队名称
             $data['at_user']          = Session::get('username');         // 创建人
             $data['order_time']       = Request::param('order_time');     // 成交时间
             $data['shipping_cost']    = Request::param('shipping_cost');  // 估算运费
@@ -755,6 +767,19 @@ class Order extends Common
                 $res['country'] = $custinfo['xs_area'];
                 $res['oper_user'] = $custinfo['oper_user'];
                 
+                // 获取原负责人的 admin_id
+                $prUserId = 0;
+                if (!empty($custinfo['pr_user'])) {
+                    $prUserAdminInfo = Db::name('admin')->where('username', $custinfo['pr_user'])->field('admin_id')->find();
+                    if ($prUserAdminInfo && !empty($prUserAdminInfo['admin_id'])) {
+                        $prUserId = $prUserAdminInfo['admin_id'];
+                    }
+                }
+                $res['pr_user_id'] = $prUserId;
+                
+                // 返回当前登录人是否是协同人
+                $res['is_login_collaborator'] = $isCollaboratorCustomer ? 1 : 0;
+                
                 // 获取协同人（joint_person）字段，解析为数组格式
                 $jointPersonIds = [];
                 if (!empty($custinfo['joint_person'])) {
@@ -803,6 +828,27 @@ class Order extends Common
 
 
         $this->success($res);
+    }
+
+    // 根据 pr_user 获取团队名称
+    public function getTeamByPrUser()
+    {
+        $prUser = Request::param('pr_user', '');
+        if (empty($prUser)) {
+            return json(['code' => -1, 'msg' => '']);
+        }
+        
+        // 从 admin 表查询团队名称
+        $adminInfo = Db::name('admin')->where('username', $prUser)->field('team_name')->find();
+        $teamName = '';
+        if ($adminInfo && !empty($adminInfo['team_name'])) {
+            $teamName = $adminInfo['team_name'];
+        } else {
+            // fallback: 如果查不到，尝试从 session 获取
+            $teamName = Session::get('team_name') ?: '';
+        }
+        
+        return json(['code' => 0, 'msg' => $teamName]);
     }
 
 
