@@ -363,6 +363,26 @@
             font-size: 12px;
             line-height: 1.5;
         }
+
+        /* 产品明细列自动调整行高 */
+        .layui-table tbody td[data-field="order_items"] .layui-table-cell {
+            white-space: normal !important;
+            word-wrap: break-word !important;
+            line-height: 1.8 !important;
+            padding: 10px 15px !important;
+            height: auto !important;
+            min-height: 40px !important;
+            overflow: visible !important;
+        }
+
+        /* 确保表格行可以自动调整高度 */
+        .layui-table tbody tr {
+            height: auto !important;
+        }
+
+        .layui-table tbody tr td[data-field="order_items"] {
+            height: auto !important;
+        }
     </style>
 
 </head>
@@ -601,6 +621,34 @@
                     $('#total-profit').text(res.totalProfit);
                     $('#total-inquiries').text(res.totalInquiries);
                     $('#success-rate').text(res.successRate);
+                    
+                    // 自动调整产品明细列的行高
+                    setTimeout(function() {
+                        $('.layui-table tbody tr').each(function() {
+                            var $row = $(this);
+                            // 跳过合计行
+                            if ($row.hasClass('layui-table-total')) {
+                                return;
+                            }
+                            var $productCell = $row.find('td[data-field="order_items"] .layui-table-cell');
+                            if ($productCell.length > 0) {
+                                // 临时移除高度限制以获取真实内容高度
+                                var originalHeight = $productCell.css('height');
+                                $productCell.css('height', 'auto');
+                                var cellHeight = $productCell[0].scrollHeight;
+                                
+                                // 设置单元格和行的高度
+                                if (cellHeight > 40) {
+                                    $row.css('height', 'auto');
+                                    $row.find('td').css('height', 'auto');
+                                    $productCell.css('height', 'auto');
+                                    $productCell.css('min-height', cellHeight + 10 + 'px');
+                                } else {
+                                    $productCell.css('height', originalHeight);
+                                }
+                            }
+                        });
+                    }, 200);
                 }
             });
             table.on('tool(table-list)', function (obj) {
