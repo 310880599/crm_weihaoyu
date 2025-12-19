@@ -301,6 +301,26 @@
         .layui-layer-loading {
             border-radius: 50%;
         }
+
+        /* 产品明细列自动调整行高 */
+        .layui-table tbody td[data-field="order_items"] .layui-table-cell {
+            white-space: normal !important;
+            word-wrap: break-word !important;
+            line-height: 1.8 !important;
+            padding: 10px 15px !important;
+            height: auto !important;
+            min-height: 40px !important;
+            overflow: visible !important;
+        }
+
+        /* 确保表格行可以自动调整高度 */
+        .layui-table tbody tr {
+            height: auto !important;
+        }
+
+        .layui-table tbody tr td[data-field="order_items"] {
+            height: auto !important;
+        }
     </style>
 </head>
 
@@ -551,21 +571,30 @@
                 defaultToolbar: defaultToolbar,
                 cols: [[
                     { field: 'id', title: 'ID', width: 80, fixed: true, hide: true },
-                    { field: 'order_no', title: '订单编号', totalRowText: '合计：' },
-                    { field: 'cname', title: '客户名称' },
-                    { field: 'contact', title: '联系方式' },
-                    { field: 'customer_type_flag', title: '用户属性', width: 100, templet: function(d) {
-                        return d.customer_type_flag == 1 ? '个人' : '公司';
+                    { field: 'order_no', title: '订单编号', totalRowText: '合计：' , width: 180},
+                    { field: 'order_time', title: '成交时间' , width: 180},
+                    { field: 'country', title: '成交地址' , width: 280},
+                    { field: 'contact', title: '联系方式' , width: 180},
+                    { field: 'order_items', title: '产品明细', width: 480, templet: function(d){
+                        if (!d.order_items || d.order_items.length === 0) {
+                            return '';
                         }
-                    },
-                    { field: 'money', title: '成交金额(￥)', totalRow: true },
-                    { field: 'profit', title: '利润', totalRow: true },
-                    { field: 'margin_rate', title: '利润率(%)', totalRowText: '' },
-                    { field: 'order_time', title: '成交时间' },
-                    { field: 'source', title: '运营渠道' },
-                    { field: 'source_port', title: '运营端口' },
-                    { field: 'pr_user', title: '负责人', hide: false },
-                    { field: 'team_name', title: '团队', hide: false },
+                        return d.order_items.map(function(item){
+                            return item.product_name || '';
+                        }).filter(function(name){
+                            return name;
+                        }).join('<br>');
+                    }},
+                    { field: 'money', title: '成交金额(￥)', totalRow: true, width: 180 },
+                    { field: 'profit', title: '利润', totalRow: true, width: 180 },
+                    { field: 'source', title: '运营渠道' , width: 180},
+                    { field: 'source_port', title: '运营端口' , width: 180},
+                    { field: 'pr_user', title: '负责人', hide: false , width: 180},
+                    { field: 'joint_person', title: '协同人', width: 180, templet: function(d){
+                        return d.joint_person_names || d.joint_person || '';
+                    }},
+                    { field: 'create_time', title: '创建时间' , width: 180},
+                    { field: 'update_time', title: '更新时间' , width: 180},
                     { width: 200, title: '操作', toolbar: '#action' }
                 ]],
                 limit: 10,
@@ -587,6 +616,33 @@
                     // 更新合计行单元格（margin_rate 列）
                     $('.layui-table-total td[data-field="margin_rate"] div').text(rate);
 
+                    // 自动调整产品明细列的行高
+                    setTimeout(function() {
+                        $('.layui-table tbody tr').each(function() {
+                            var $row = $(this);
+                            // 跳过合计行
+                            if ($row.hasClass('layui-table-total')) {
+                                return;
+                            }
+                            var $productCell = $row.find('td[data-field="order_items"] .layui-table-cell');
+                            if ($productCell.length > 0) {
+                                // 临时移除高度限制以获取真实内容高度
+                                var originalHeight = $productCell.css('height');
+                                $productCell.css('height', 'auto');
+                                var cellHeight = $productCell[0].scrollHeight;
+                                
+                                // 设置单元格和行的高度
+                                if (cellHeight > 40) {
+                                    $row.css('height', 'auto');
+                                    $row.find('td').css('height', 'auto');
+                                    $productCell.css('height', 'auto');
+                                    $productCell.css('min-height', cellHeight + 10 + 'px');
+                                } else {
+                                    $productCell.css('height', originalHeight);
+                                }
+                            }
+                        });
+                    }, 200);
                 }
             });
 

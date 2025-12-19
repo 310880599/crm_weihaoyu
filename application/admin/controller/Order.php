@@ -264,7 +264,8 @@ class Order extends Common
             $data['country']          = Request::param('country');        // 发货地址
             $data['customer_type']    = Request::param('customer_type');  // 客户性质
             $data['source']           = Request::param('source');         // 询盘来源（运营渠道，存储为文字）
-            $data['pr_user']          = Request::param('pr_user') ?: Session::get('username');
+            // 强制覆盖 pr_user 为当前登录人，无论前端传什么值
+            $data['pr_user']          = Session::get('username');
             $data['oper_user']        = Request::param('oper_user');      // 运营人员
             $data['bank_account']     = Request::param('bank_account');   // 收款账户
             
@@ -281,7 +282,18 @@ class Order extends Common
                     $data['source_port'] = $portInfo['port_name'];  // 保存端口名称（文字）
                 }
             }
-            $data['team_name']        = Request::param('team_name');      // 团队名称
+            // 强制覆盖 team_name 为当前登录人的团队名称
+            $currentUsername = Session::get('username');
+            $loginTeamName = '';
+            // 从 admin 表读取登录人的团队名称
+            $adminInfo = Db::name('admin')->where('username', $currentUsername)->field('team_name')->find();
+            if ($adminInfo && !empty($adminInfo['team_name'])) {
+                $loginTeamName = $adminInfo['team_name'];
+            } else {
+                // fallback: 如果查不到，尝试从 session 获取
+                $loginTeamName = Session::get('team_name') ?: '';
+            }
+            $data['team_name']        = $loginTeamName;  // 强制使用登录人团队名称
             $data['at_user']          = Session::get('username');         // 创建人
             $data['order_time']       = Request::param('order_time');     // 成交时间
             $data['shipping_cost']    = Request::param('shipping_cost');  // 估算运费
@@ -755,6 +767,19 @@ class Order extends Common
                 $res['country'] = $custinfo['xs_area'];
                 $res['oper_user'] = $custinfo['oper_user'];
                 
+                // 获取原负责人的 admin_id
+                $prUserId = 0;
+                if (!empty($custinfo['pr_user'])) {
+                    $prUserAdminInfo = Db::name('admin')->where('username', $custinfo['pr_user'])->field('admin_id')->find();
+                    if ($prUserAdminInfo && !empty($prUserAdminInfo['admin_id'])) {
+                        $prUserId = $prUserAdminInfo['admin_id'];
+                    }
+                }
+                $res['pr_user_id'] = $prUserId;
+                
+                // 返回当前登录人是否是协同人
+                $res['is_login_collaborator'] = $isCollaboratorCustomer ? 1 : 0;
+                
                 // 获取协同人（joint_person）字段，解析为数组格式
                 $jointPersonIds = [];
                 if (!empty($custinfo['joint_person'])) {
@@ -771,22 +796,6 @@ class Order extends Common
                     }
                 }
                 $res['joint_person'] = $jointPersonIds;
-                
-                // 查询协同人名字列表（用于客户负责人下拉框）
-                $jointPersonNames = [];
-                if (!empty($jointPersonIds)) {
-                    $adminList = Db::name('admin')
-                        ->whereIn('admin_id', $jointPersonIds)
-                        ->field('admin_id,username')
-                        ->select();
-                    foreach ($adminList as $admin) {
-                        $jointPersonNames[] = [
-                            'id' => $admin['admin_id'],
-                            'name' => $admin['username']
-                        ];
-                    }
-                }
-                $res['joint_person_names'] = $jointPersonNames;
                 
                 // 获取团队名称（通过负责人 pr_user 查找）
                 $teamName = '';
@@ -821,27 +830,25 @@ class Order extends Common
         $this->success($res);
     }
 
-    // 根据客户负责人获取团队名称
+    // 根据 pr_user 获取团队名称
     public function getTeamByPrUser()
     {
-        if (Request::isAjax()) {
-            $prUser = Request::param('pr_user', '');
-            
-            if (empty($prUser)) {
-                return json(['code' => 0, 'msg' => '客户负责人不能为空', 'data' => ['team_name' => '']]);
-            }
-            
-            // 根据客户负责人（username）查询团队名称
-            $adminInfo = Db::name('admin')->where('username', $prUser)->field('team_name')->find();
-            
-            if ($adminInfo && !empty($adminInfo['team_name'])) {
-                return json(['code' => 1, 'msg' => '获取成功', 'data' => ['team_name' => $adminInfo['team_name']]]);
-            } else {
-                return json(['code' => 0, 'msg' => '未找到对应的团队', 'data' => ['team_name' => '']]);
-            }
+        $prUser = Request::param('pr_user', '');
+        if (empty($prUser)) {
+            return json(['code' => -1, 'msg' => '']);
         }
         
-        return json(['code' => 500, 'msg' => '请求方式错误', 'data' => ['team_name' => '']]);
+        // 从 admin 表查询团队名称
+        $adminInfo = Db::name('admin')->where('username', $prUser)->field('team_name')->find();
+        $teamName = '';
+        if ($adminInfo && !empty($adminInfo['team_name'])) {
+            $teamName = $adminInfo['team_name'];
+        } else {
+            // fallback: 如果查不到，尝试从 session 获取
+            $teamName = Session::get('team_name') ?: '';
+        }
+        
+        return json(['code' => 0, 'msg' => $teamName]);
     }
 
 
@@ -1923,7 +1930,7 @@ class Order extends Common
 
         $list = Db::table('crm_client_order')
             ->where($where)
-            ->order('order_time desc')
+            ->order('create_time desc,id desc')
             ->paginate([
                 'list_rows' => $limit,
                 'page' => $page
@@ -2171,12 +2178,13 @@ class Order extends Common
         // 确保只显示当前用户的订单：自己创建的或自己是负责人的
         if (!empty($pr_user)) {
             $where[] = function($query) use ($pr_user) {
-                $query->where('pr_user', '=', $pr_user);
+                $query->where('at_user', '=', $pr_user)
+                      ->whereOr('pr_user', '=', $pr_user);
             };
         } else {
+            // 如果没有用户名，返回空结果
             $where[] = ['id', '=', 0];
         }
-
         
         $client_where[] = ['pr_user', '=', $pr_user];
         //判断权限
@@ -2231,29 +2239,84 @@ class Order extends Common
         }
         $list = Db::table('crm_client_order')
             ->where($where)
-            ->order('order_time desc')
+            ->order('create_time desc,id desc')
             ->paginate([
                 'list_rows' => $limit,
                 'page' => $page
             ])
             ->toArray();
         
-        // 如果订单主表的 product_name 为空，尝试从订单明细表中获取产品名称
-        // 这样可以确保即使产品被删除，订单的产品名称仍然可以显示
-        foreach ($list['data'] as &$order) {
-            if (empty($order['product_name'])) {
-                $firstItem = Db::name('crm_order_item')
-                    ->where('order_id', $order['id'])
-                    ->where('product_name', '<>', '')
-                    ->order('line_no asc')
-                    ->field('product_name')
-                    ->find();
-                if ($firstItem && !empty($firstItem['product_name'])) {
-                    $order['product_name'] = $firstItem['product_name'];
+        // 收集所有需要查询的admin_id（协同人）
+        $allAdminIds = [];
+        foreach ($list['data'] as $order) {
+            // 收集协同人ID
+            if (!empty($order['joint_person'])) {
+                $ids = explode(',', $order['joint_person']);
+                foreach ($ids as $id) {
+                    $id = trim($id);
+                    if (is_numeric($id)) {
+                        $allAdminIds[] = $id;
+                    }
                 }
             }
-            
-            // 转换收款账户ID为账户名称
+        }
+        $allAdminIds = array_unique($allAdminIds);
+
+        // 批量查询admin表获取用户名映射
+        $adminMap = [];
+        if (!empty($allAdminIds)) {
+            $admins = Db::name('admin')
+                ->whereIn('admin_id', $allAdminIds)
+                ->column('username', 'admin_id');
+            $adminMap = $admins;
+        }
+
+        // 查询订单对应的产品明细，便于前端一次性展示
+        $orderIds = array_column($list['data'], 'id');
+        $orderItemsMap = [];
+        if (!empty($orderIds)) {
+            $items = Db::table('crm_order_item')
+                ->alias('oi')
+                ->leftJoin('crm_products p', 'oi.product_id = p.id')
+                ->leftJoin('crm_product_category c', 'p.category_id = c.id')
+                ->whereIn('oi.order_id', $orderIds)
+                ->order('oi.order_id asc, oi.line_no asc')
+                ->field('oi.*, c.category_name as supplier')
+                ->select();
+
+            // 组装产品经理映射
+            $managerIds = [];
+            foreach ($items as $item) {
+                if (!empty($item['manager_id'])) {
+                    $managerIds[] = $item['manager_id'];
+                }
+            }
+            $managerIds = array_unique($managerIds);
+            $managerMap = [];
+            if (!empty($managerIds)) {
+                $managers = Db::table('admin')
+                    ->whereIn('admin_id', $managerIds)
+                    ->field('admin_id, username')
+                    ->select();
+                foreach ($managers as $manager) {
+                    $managerMap[$manager['admin_id']] = $manager['username'];
+                }
+            }
+
+            foreach ($items as &$item) {
+                $item['manager_name'] = isset($managerMap[$item['manager_id']]) ? $managerMap[$item['manager_id']] : '';
+                $item['supplier'] = $item['supplier'] ?? '';
+            }
+            unset($item);
+
+            foreach ($items as $item) {
+                $orderItemsMap[$item['order_id']][] = $item;
+            }
+        }
+        
+        // 转换收款账户ID为账户名称 和 协同人ID为用户名
+        foreach ($list['data'] as &$order) {
+            // 转换收款账户
             if (!empty($order['bank_account'])) {
                 $accountInfo = Db::name('crm_receive_account')
                     ->where('id', $order['bank_account'])
@@ -2262,6 +2325,27 @@ class Order extends Common
                 if ($accountInfo) {
                     $order['bank_account_name'] = $accountInfo['account'];
                 }
+            }
+            
+            // 转换协同人ID为用户名
+            if (!empty($order['joint_person'])) {
+                $ids = explode(',', $order['joint_person']);
+                $names = [];
+                foreach ($ids as $id) {
+                    $id = trim($id);
+                    if (isset($adminMap[$id])) {
+                        $names[] = $adminMap[$id];
+                    }
+                }
+                if (!empty($names)) {
+                    $order['joint_person_names'] = implode(',', $names);
+                }
+            }
+
+            // 绑定订单的产品明细，便于前端一次渲染
+            $order['order_items'] = $orderItemsMap[$order['id']] ?? [];
+            if (empty($order['product_name']) && !empty($order['order_items'])) {
+                $order['product_name'] = $order['order_items'][0]['product_name'];
             }
         }
         unset($order);
