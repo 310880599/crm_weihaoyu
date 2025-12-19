@@ -557,6 +557,39 @@ private function exportToExcel($data)
             ])
             ->toArray();
 
+        // ====== 新增：批量查询产品明细 ======
+        $orderIds = array_column($list['data'], 'id');
+        $orderItemsMap = [];
+        if (!empty($orderIds)) {
+            // 批量查询订单明细表，关联产品和分类表获取产品名称
+            $items = Db::table('crm_order_item')
+                ->alias('oi')
+                ->leftJoin('crm_products p', 'oi.product_id = p.id')
+                ->leftJoin('crm_product_category c', 'p.category_id = c.id')
+                ->whereIn('oi.order_id', $orderIds)
+                ->order('oi.order_id asc, oi.line_no asc')
+                ->field('oi.order_id, oi.product_name, oi.product_id, p.product_name as product_name_from_table')
+                ->select();
+
+            // 按 order_id 分组组装产品明细
+            foreach ($items as $item) {
+                $orderId = $item['order_id'];
+                // 优先使用明细表中的 product_name，如果没有则使用关联表的产品名称
+                $productName = !empty($item['product_name']) ? $item['product_name'] : ($item['product_name_from_table'] ?? '');
+                if (!empty($productName)) {
+                    $orderItemsMap[$orderId][] = [
+                        'product_name' => $productName
+                    ];
+                }
+            }
+        }
+
+        // 将产品明细添加到每条订单数据中
+        foreach ($list['data'] as &$order) {
+            $order['order_items'] = $orderItemsMap[$order['id']] ?? [];
+        }
+        unset($order);
+        // ====== 新增代码结束 ======
 
         //成单率
 
