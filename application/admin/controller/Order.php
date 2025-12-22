@@ -150,6 +150,60 @@ class Order extends Common
     }
 
 
+    //（协同人订单）列表（备用）
+    // public function collaboratorindex()
+    // {
+
+    //     if (request()->isPost()) {
+    //         $params = Request::param();
+    //         if (!isset($params['keyword'])) {
+    //             $params['keyword'] = [];
+    //         }
+    //         $params['keyword']['timebucket'] = 'month';
+    //         Request::merge($params);
+    //         return $this->collaboratorClientSearch();
+    //         // $key = input('post.key');
+    //         // $page = input('page') ? input('page') : 1;
+    //         // $pageSize = input('limit') ? input('limit') : config('pageSize');
+    //         // $list = db('crm_client_order')
+    //         //     ->where(['pr_user' => Session::get('username')])
+    //         //     ->order('create_time desc')
+    //         //     ->paginate(array('list_rows' => $pageSize, 'page' => $page))
+    //         //     ->toArray();
+    //         // return $result = ['code' => 0, 'msg' => '获取成功!', 'data' => $list['data'], 'count' => $list['total'], 'rel' => 1];
+    //     }
+    //     $this->assign('customer_type', self::CUSTOMER_TYPE);
+    //     $this->assign('sourceList', Db::name('crm_client_status')->distinct(true)->column('status_name'));
+    //     return $this->fetch();
+    // }
+
+    // 协同人订单页面入口（新增）
+    public function collabIndex()
+    {
+        if (request()->isPost()) {
+            return $this->collabSearch();
+        }
+        $this->assign('customer_type', self::CUSTOMER_TYPE);
+        $this->assign('sourceList', Db::name('crm_client_status')->distinct(true)->column('status_name'));
+        return $this->fetch('order/collabindex');
+    }
+
+    // 协同人订单搜索接口（新增，返回 JSON）
+    public function collabSearch()
+    {
+        $params = Request::param();
+        if (!isset($params['keyword'])) {
+            $params['keyword'] = [];
+        }
+        // 如果前端没有传 timebucket，默认使用本月
+        if (!isset($params['keyword']['timebucket']) || empty($params['keyword']['timebucket'])) {
+            $params['keyword']['timebucket'] = 'month';
+        }
+        Request::merge($params);
+        return $this->collaboratorClientSearch();
+    }
+
+
 
     // 新建订单第3版
     public function add()
@@ -2367,6 +2421,181 @@ class Order extends Common
             'rel' => 1,
             'totalInquiries' => $totalInquiries,
             'successRate' => number_format($successRate, 2),
+            'totalMoney' => number_format($totalMoney, 2),
+            'totalProfit' => number_format($totalProfit, 2),
+        ];
+    }
+
+    // 协同人订单搜索接口（已改造为只展示协同人订单）
+    public function collaboratorClientSearch()
+    {
+        $where = [];
+        
+        // 获取当前登录用户的 admin_id
+        $aid = (int)Session::get('aid');
+        
+        // 协同人过滤：只取"我在 joint_person 里"的订单
+        $where[] = ['joint_person', '<>', ''];
+        $where[] = Db::raw("FIND_IN_SET($aid, joint_person)");
+        
+        $page = input('page') ?? 1;
+        $limit = input('limit') ?? config('pageSize');
+        $keyword = Request::param('keyword');
+        // 过滤掉 null 元素
+        if ($keyword) $keyword = array_filter($keyword);
+
+        // 筛选条件复用现有的 keyword 过滤逻辑
+        if (isset($keyword['order_no'])) $where[] = ['order_no', 'like', "%{$keyword['order_no']}%"];
+        if (isset($keyword['timebucket'])) {
+            // 方案A：timebucket 仅保留订单表字段 order_time 的筛选
+            $where[] = $this->buildTimeWhere($keyword['timebucket'], 'order_time');
+        }
+        if (isset($keyword['min_money'])) $where[] = ['money', '>', $keyword['min_money']];
+        if (isset($keyword['max_money'])) $where[] = ['money', '<', $keyword['max_money']];
+        if (isset($keyword['min_profit'])) $where[] = ['profit', '>', $keyword['min_profit']];
+        if (isset($keyword['max_profit'])) $where[] = ['profit', '<', $keyword['max_profit']];
+        if (isset($keyword['min_margin_rate'])) $where[] = ['margin_rate', '>', $keyword['min_margin_rate']];
+        if (isset($keyword['max_margin_rate'])) $where[] = ['margin_rate', '<', $keyword['max_margin_rate']];
+        if (isset($keyword['cname'])) {
+            $where[] = ['cname', 'like', "%{$keyword['cname']}%"];
+        }
+        if (isset($keyword['contact'])) {
+            $where[] = ['contact', 'like', "%{$keyword['contact']}%"];
+        }
+        if (isset($keyword['customer_type'])) {
+            $where[] = ['customer_type', '=', $keyword['customer_type']];
+        }
+        if (isset($keyword['product_name'])) {
+            $where[] = ['product_name', 'like', "%{$keyword['product_name']}%"];
+        }
+        if (isset($keyword['source'])) {
+            $where[] = ['source', '=', $keyword['source']];
+        }
+        
+        // 列表查询保持不变（crm_client_order）
+        $list = Db::table('crm_client_order')
+            ->where($where)
+            ->order('create_time desc,id desc')
+            ->paginate([
+                'list_rows' => $limit,
+                'page' => $page
+            ])
+            ->toArray();
+        
+        // 收集所有需要查询的admin_id（协同人）
+        $allAdminIds = [];
+        foreach ($list['data'] as $order) {
+            // 收集协同人ID
+            if (!empty($order['joint_person'])) {
+                $ids = explode(',', $order['joint_person']);
+                foreach ($ids as $id) {
+                    $id = trim($id);
+                    if (is_numeric($id)) {
+                        $allAdminIds[] = $id;
+                    }
+                }
+            }
+        }
+        $allAdminIds = array_unique($allAdminIds);
+
+        // 批量查询admin表获取用户名映射
+        $adminMap = [];
+        if (!empty($allAdminIds)) {
+            $admins = Db::name('admin')
+                ->whereIn('admin_id', $allAdminIds)
+                ->column('username', 'admin_id');
+            $adminMap = $admins;
+        }
+
+        // 查询订单对应的产品明细，便于前端一次性展示
+        $orderIds = array_column($list['data'], 'id');
+        $orderItemsMap = [];
+        if (!empty($orderIds)) {
+            $items = Db::table('crm_order_item')
+                ->alias('oi')
+                ->leftJoin('crm_products p', 'oi.product_id = p.id')
+                ->leftJoin('crm_product_category c', 'p.category_id = c.id')
+                ->whereIn('oi.order_id', $orderIds)
+                ->order('oi.order_id asc, oi.line_no asc')
+                ->field('oi.*, c.category_name as supplier')
+                ->select();
+
+            // 组装产品经理映射
+            $managerIds = [];
+            foreach ($items as $item) {
+                if (!empty($item['manager_id'])) {
+                    $managerIds[] = $item['manager_id'];
+                }
+            }
+            $managerIds = array_unique($managerIds);
+            $managerMap = [];
+            if (!empty($managerIds)) {
+                $managers = Db::table('admin')
+                    ->whereIn('admin_id', $managerIds)
+                    ->field('admin_id, username')
+                    ->select();
+                foreach ($managers as $manager) {
+                    $managerMap[$manager['admin_id']] = $manager['username'];
+                }
+            }
+
+            foreach ($items as &$item) {
+                $item['manager_name'] = isset($managerMap[$item['manager_id']]) ? $managerMap[$item['manager_id']] : '';
+                $item['supplier'] = $item['supplier'] ?? '';
+            }
+            unset($item);
+
+            foreach ($items as $item) {
+                $orderItemsMap[$item['order_id']][] = $item;
+            }
+        }
+        
+        // 转换收款账户ID为账户名称 和 协同人ID为用户名
+        foreach ($list['data'] as &$order) {
+            // 转换收款账户
+            if (!empty($order['bank_account'])) {
+                $accountInfo = Db::name('crm_receive_account')
+                    ->where('id', $order['bank_account'])
+                    ->field('account')
+                    ->find();
+                if ($accountInfo) {
+                    $order['bank_account_name'] = $accountInfo['account'];
+                }
+            }
+            
+            // 转换协同人ID为用户名
+            if (!empty($order['joint_person'])) {
+                $ids = explode(',', $order['joint_person']);
+                $names = [];
+                foreach ($ids as $id) {
+                    $id = trim($id);
+                    if (isset($adminMap[$id])) {
+                        $names[] = $adminMap[$id];
+                    }
+                }
+                if (!empty($names)) {
+                    $order['joint_person_names'] = implode(',', $names);
+                }
+            }
+
+            // 绑定订单的产品明细，便于前端一次渲染
+            $order['order_items'] = $orderItemsMap[$order['id']] ?? [];
+            if (empty($order['product_name']) && !empty($order['order_items'])) {
+                $order['product_name'] = $order['order_items'][0]['product_name'];
+            }
+        }
+        unset($order);
+
+        // 统计字段：只保留金额/利润/订单数（方案A不需要询盘数和成单率）
+        $totalMoney = $this->getSum($where, 'money');
+        $totalProfit = $this->getSum($where, 'profit');
+        
+        return [
+            'code' => 0,
+            'msg' => '获取成功!',
+            'data' => $list['data'],
+            'count' => $list['total'],
+            'rel' => 1,
             'totalMoney' => number_format($totalMoney, 2),
             'totalProfit' => number_format($totalProfit, 2),
         ];
