@@ -1741,12 +1741,35 @@ class Client extends Common
 
             // 5) 系统字段
             $data['at_user']     = Session::get('username');
+            // 检查 at_user_id 字段是否存在，如果存在则添加
+            try {
+                $columns_at_user_id = Db::query("SHOW COLUMNS FROM `crm_leads` LIKE 'at_user_id'");
+                if (!empty($columns_at_user_id)) {
+                    $data['at_user_id'] = (int)Session::get('aid');
+                }
+            } catch (\Exception $e) {
+                // 忽略查询失败
+            }
             $data['pr_user']     = Session::get('username');
             $data['pr_user_bef'] = Session::get('username');
             $data['ut_time']     = date("Y-m-d H:i:s", time());
             $data['at_time']     = date("Y-m-d H:i:s", time());
             $data['status']      = 1;
             $data['ispublic']    = 3;
+
+            // 检查 pr_user_id 和 pr_user_bef_id 字段是否存在，如果存在则添加
+            try {
+                $columns_pr_user_id = Db::query("SHOW COLUMNS FROM `crm_leads` LIKE 'pr_user_id'");
+                $columns_pr_user_bef_id = Db::query("SHOW COLUMNS FROM `crm_leads` LIKE 'pr_user_bef_id'");
+                if (!empty($columns_pr_user_id)) {
+                    $data['pr_user_id'] = (int)Session::get('aid');
+                }
+                if (!empty($columns_pr_user_bef_id)) {
+                    $data['pr_user_bef_id'] = (int)Session::get('aid');
+                }
+            } catch (\Exception $e) {
+                // 忽略查询失败
+            }
 
             // 6) 查重（按 crm_contacts.contact_value 直接查）
             list($res, $msg) = $this->checkDuplicateNew($data);
@@ -3436,14 +3459,26 @@ class Client extends Common
 
         if (Request::isAjax()) {
             $username = Request::param('username');
+            // 查询新负责人的 admin_id
+            $newPrUserId = Db::name('admin')->where('username', $username)->value('admin_id');
+            if (empty($newPrUserId)) {
+                return json(['code' => 500, 'msg' => '未找到该负责人账号，请重新选择', 'data' => []]);
+            }
+            
             $idsArr = explode(",", $ids);
-
-
             $count = 0;
             foreach ($idsArr as $key => $value) {
-                $data['pr_user_bef'] = Db::table('crm_leads')->where(['id' => $value])->field('pr_user')->find();
-                $data['pr_user'] = $username;
+                // 一次性读出旧负责人信息
+                $old = Db::name('crm_leads')->where('id', $value)->field('pr_user,pr_user_id')->find();
+                
+                // 组装更新数据
+                $data = [];
                 $data['id'] = $value;
+                $data['pr_user_bef'] = $old['pr_user'] ?? '';
+                $data['pr_user_bef_id'] = $old['pr_user_id'] ?? 0;
+                $data['pr_user'] = $username;
+                $data['pr_user_id'] = (int)$newPrUserId;
+                
                 $insertAll = Db::name('crm_leads')->update($data);
                 if ($insertAll) {
                     $count++;
@@ -3452,12 +3487,9 @@ class Client extends Common
                 $this->addOperLog(
                     $value,
                     '转移负责人',
-                    "从 [{$data['pr_user_bef']['pr_user']}] 转移给 [{$username}]"
+                    "从 [{$data['pr_user_bef']}] 转移给 [{$username}]"
                 );
             }
-
-
-
 
             if ($count > 0) {
                 $msg = ['code' => 0, 'msg' => '转移' . $count . '个客户成功！', 'data' => []];

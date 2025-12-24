@@ -320,6 +320,7 @@ class Order extends Common
             $data['source']           = Request::param('source');         // 询盘来源（运营渠道，存储为文字）
             // 强制覆盖 pr_user 为当前登录人，无论前端传什么值
             $data['pr_user']          = Session::get('username');
+            $data['pr_user_id']       = (int)Session::get('aid');
             $data['oper_user']        = Request::param('oper_user');      // 运营人员
             $data['bank_account']     = Request::param('bank_account');   // 收款账户
             
@@ -349,6 +350,7 @@ class Order extends Common
             }
             $data['team_name']        = $loginTeamName;  // 强制使用登录人团队名称
             $data['at_user']          = Session::get('username');         // 创建人
+            $data['at_user_id']       = (int)Session::get('aid');
             $data['order_time']       = Request::param('order_time');     // 成交时间
             $data['shipping_cost']    = Request::param('shipping_cost');  // 估算运费
             // 票种性质（普票、专票、不开票）- 验证并保存
