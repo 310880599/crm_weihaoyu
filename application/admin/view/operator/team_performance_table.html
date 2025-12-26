@@ -1,0 +1,191 @@
+<!-- 团队业绩表弹窗 -->
+<style>
+    /* 团队业绩表行点击样式 */
+    #teamPerformanceTableBody tr.team-row {
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+    #teamPerformanceTableBody tr.team-row:hover {
+        background-color: #f5faff;
+    }
+    #teamPerformanceTableBody tr.team-row.is-active {
+        background-color: #e8f1ff !important;
+    }
+</style>
+<div id="teamPerformanceModal" style="display:none; padding:20px; background:#f6f8fb;">
+
+    <div class="wukong-table-card" style="background:#ffffff; width: 100%; max-width: none;">
+        <!-- 头部 -->
+        <div class="wukong-table-card-header"
+             style="display:flex;align-items:center;justify-content:space-between;
+                    background:linear-gradient(90deg,#4f7cff,#6fa1ff);
+                    color:#fff;">
+            <span style="font-size:16px;font-weight:600;">
+                🧩 团队业绩排行榜
+            </span>
+            <div>
+                <button class="btn btn-sm btn-light" id="teamPerformanceRefresh">
+                    <i class="bi bi-arrow-repeat"></i> 刷新
+                </button>
+            </div>
+        </div>
+
+        <!-- 时间筛选栏 -->
+        <div class="filter-bar" style="padding: 15px; border-bottom: 1px solid #e9ecef; display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <label style="margin: 0; white-space: nowrap;">时间筛选：</label>
+                <select id="teamPerformanceTimeFilter" class="form-select" style="width: 150px;">
+                    <option value="today">今天</option>
+                    <option value="yesterday">昨天</option>
+                    <option value="week">本周</option>
+                    <option value="month" selected>本月</option>
+                    <option value="year">本年</option>
+                    <option value="custom">自定义</option>
+                </select>
+            </div>
+            <div id="teamPerformanceCustomTimeRange" style="display: none; gap: 8px; align-items: center;">
+                <input type="date" id="teamPerformanceStartDate" class="form-control" style="width: 150px;">
+                <span>至</span>
+                <input type="date" id="teamPerformanceEndDate" class="form-control" style="width: 150px;">
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" id="teamPerformanceFilterBtn" style="margin-left: auto;">
+                <i class="bi bi-search"></i> 筛选
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="teamPerformanceResetBtn">
+                <i class="bi bi-arrow-counterclockwise"></i> 重置
+            </button>
+        </div>
+
+        <!-- 表格区 -->
+        <div class="wukong-table-card-body" style="overflow-x: auto;">
+            <div>
+                <table class="wukong-table" id="teamPerformanceTable" style="width:100%;">
+                    <thead>
+                        <tr>
+                            <th style="width:70px;">排名</th>
+                            <th>团队名称</th>
+                            <th style="text-align:right;">总利润</th>
+                            <th style="text-align:right;">利润率</th>
+                        </tr>
+                    </thead>
+                    <tbody id="teamPerformanceTableBody">
+                        <tr><td colspan="4" class="text-center text-muted">加载中...</td></tr>
+                    </tbody>                    
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+// === split-layout start ===
+/**
+ * 初始化团队业绩表行点击事件（使用事件委托）
+ * 改为在分栏布局中使用，点击团队行时渲染成员排名到中列
+ */
+function initTeamRowClick() {
+    // 先移除旧的事件监听，避免重复绑定
+    $(document).off('click', '#teamPerformanceTable tbody tr.team-row, #teamPane #teamPerformanceTable tbody tr.team-row');
+    
+    // 使用事件委托绑定点击事件（支持在弹窗和分栏布局中使用）
+    $(document).on('click', '#teamPerformanceTable tbody tr.team-row, #teamPane #teamPerformanceTable tbody tr.team-row', function() {
+        console.log('[team click] 点击事件触发');
+        
+        // 移除其他行的 active 样式
+        $('#teamPerformanceTableBody tr.team-row, #teamPane #teamPerformanceTableBody tr.team-row').removeClass('is-active');
+        
+        // 给当前行添加 active 样式
+        $(this).addClass('is-active');
+        
+        // 获取团队名称
+        var teamName = $(this).data('team') || $(this).find('td').eq(1).text().trim();
+        console.log('[team click] 团队名称:', teamName);
+        
+        if (!teamName) {
+            console.error('[team click] 无法获取团队名称');
+            layer.msg('无法获取团队名称', {icon: 2});
+            return;
+        }
+        
+        // 读取当前的时间筛选值（优先读取teamPane可见控件，其次弹窗可见控件）
+        var $timeFilter = $('#teamPane #teamPerformanceTimeFilter:visible');
+        if ($timeFilter.length === 0) {
+            $timeFilter = $('#teamPerformanceTimeFilter:visible');
+        }
+        var timeFilter = $timeFilter.val() || 'month';
+        var timebucket = '';
+        var at_time = '';
+        
+        // 如果是自定义时间，读取起止日期（优先读取teamPane可见控件，其次弹窗）
+        if (timeFilter === 'custom') {
+            var $startDate = $('#teamPane #teamPerformanceStartDate:visible');
+            var $endDate = $('#teamPane #teamPerformanceEndDate:visible');
+            if ($startDate.length === 0) {
+                $startDate = $('#teamPerformanceStartDate:visible');
+            }
+            if ($endDate.length === 0) {
+                $endDate = $('#teamPerformanceEndDate:visible');
+            }
+            
+            var startDate = $startDate.val();
+            var endDate = $endDate.val();
+            if (startDate && endDate) {
+                at_time = startDate + ',' + endDate;
+                timebucket = ''; // 自定义时间时，timebucket 置空
+            } else {
+                layer.msg('请先选择自定义时间范围', {icon: 2});
+                return;
+            }
+        } else {
+            timebucket = timeFilter;
+            at_time = '';
+        }
+        
+        console.log('[team click] 时间参数:', {timebucket: timebucket, at_time: at_time});
+        
+        // 检查是否在分栏布局中（通过检查 #teamPerformanceSplitLayout 是否显示）
+        if ($('#teamPerformanceSplitLayout').is(':visible')) {
+            // 在分栏布局中：调用渲染函数，渲染到中列
+            if (window.TeamSplit && typeof window.TeamSplit.renderMemberRank === 'function') {
+                window.TeamSplit.renderMemberRank(teamName, teamName, timebucket, at_time);
+            } else {
+                console.error('[team click] TeamSplit.renderMemberRank 函数不存在');
+                layer.msg('渲染函数未初始化', {icon: 2});
+            }
+        } else {
+            // 不在分栏布局中（可能是旧代码或弹窗模式）：保持原有逻辑，打开弹窗
+            var url = '{:url("Operator/teamMemberPerformancePage")}?team_name=' + encodeURIComponent(teamName);
+            if (timebucket) {
+                url += '&timebucket=' + encodeURIComponent(timebucket);
+            }
+            if (at_time) {
+                url += '&at_time=' + encodeURIComponent(at_time);
+            }
+            
+            console.log('[team click] 打开弹窗，URL:', url);
+            
+            // 使用 layer.open 打开新窗口（保留兼容性）
+            layer.open({
+                type: 2,
+                title: teamName + ' - 团队成员业绩表',
+                area: ['92%', '85%'],
+                closeBtn: 1,
+                content: url,
+                end: function() {
+                    // 窗口关闭后，移除选中状态（可选）
+                    // $('#teamPerformanceTableBody tr.team-row').removeClass('is-active');
+                }
+            });
+        }
+    });
+    
+    console.log('[team click] 事件委托绑定完成');
+}
+// === split-layout end ===
+
+// 页面加载完成后初始化事件绑定
+$(document).ready(function() {
+    initTeamRowClick();
+});
+</script>

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>团队成员业绩排行</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #f6f8fb;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        .container {
+            background: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(90deg, #4f7cff, #6fa1ff);
+            color: #fff;
+            padding: 20px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .info-bar {
+            padding: 15px 20px;
+            border-bottom: 1px solid #e9ecef;
+            background: #f8f9fa;
+        }
+        .info-bar span {
+            margin-right: 20px;
+            color: #495057;
+        }
+        .info-bar strong {
+            color: #212529;
+        }
+        .table-container {
+            padding: 20px;
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        thead {
+            background: #f8f9fa;
+        }
+        th {
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #495057;
+            border-bottom: 2px solid #dee2e6;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        tbody tr:hover {
+            background-color: #f8f9fa;
+        }
+        .text-center {
+            text-align: center;
+        }
+        .text-right {
+            text-align: right;
+        }
+        .text-muted {
+            color: #6c757d;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+        .profit-positive {
+            color: #28a745;
+        }
+        /* 业务员名称可点击样式 */
+        .member-name-clickable {
+            color: #4f7cff;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+        .member-name-clickable:hover {
+            color: #6fa1ff;
+            text-decoration: underline;
+        }
+        .member-name-clickable.is-active {
+            background-color: #e8f1ff;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            👥 团队成员业绩排行
+        </div>
+        <div class="info-bar">
+            <span>团队名称：<strong id="teamNameDisplay">{$team_name|default=''}</strong></span>
+            <span>时间口径：<strong id="timeDisplay">加载中...</strong></span>
+        </div>
+        <div class="table-container">
+            <table id="memberPerformanceTable">
+                <thead>
+                    <tr>
+                        <th style="width: 80px;">排名</th>
+                        <th>业务员名称</th>
+                        <th style="text-align: right;">总利润</th>
+                        <th style="text-align: right;">利润率</th>
+                    </tr>
+                </thead>
+                <tbody id="memberPerformanceTableBody">
+                    <tr>
+                        <td colspan="4" class="text-center loading">加载中...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+    <script>
+        // 获取 URL 参数（在全局作用域中定义，供其他函数使用）
+        function getUrlParam(name) {
+            var reg = new RegExp("(^|&)" + name + "=([^&]*)(&|$)");
+            var r = window.location.search.substr(1).match(reg);
+            if (r != null) return decodeURIComponent(r[2]);
+            return null;
+        }
+        
+        $(document).ready(function() {
+
+            var teamName = getUrlParam('team_name') || '{$team_name|default=""}';
+            var timebucket = getUrlParam('timebucket') || '{$timebucket|default=""}';
+            var at_time = getUrlParam('at_time') || '{$at_time|default=""}';
+
+            // 显示团队名称
+            $('#teamNameDisplay').text(teamName || '未知团队');
+
+            // 显示时间口径
+            var timeDisplay = '';
+            if (at_time) {
+                var dates = at_time.split(',');
+                if (dates.length === 2) {
+                    timeDisplay = dates[0] + ' 至 ' + dates[1];
+                } else {
+                    timeDisplay = at_time;
+                }
+            } else if (timebucket) {
+                var timeMap = {
+                    'today': '今天',
+                    'yesterday': '昨天',
+                    'week': '本周',
+                    'month': '本月',
+                    'year': '本年'
+                };
+                timeDisplay = timeMap[timebucket] || timebucket;
+            } else {
+                timeDisplay = '本月';
+            }
+            $('#timeDisplay').text(timeDisplay);
+
+            // 加载数据
+            loadMemberPerformanceData(teamName, timebucket, at_time);
+        });
+
+        /**
+         * 加载团队成员业绩数据
+         */
+        function loadMemberPerformanceData(teamName, timebucket, at_time) {
+            var $tbody = $('#memberPerformanceTableBody');
+            $tbody.html('<tr><td colspan="4" class="text-center loading">加载中...</td></tr>');
+
+            $.ajax({
+                url: '{:url("Operator/getTeamMemberPerformanceData")}',
+                type: 'POST',
+                data: {
+                    team_name: teamName,
+                    timebucket: timebucket,
+                    at_time: at_time
+                },
+                dataType: 'json',
+                success: function(res) {
+                    if (res.code === 200 && res.data && res.data.length > 0) {
+                        renderMemberPerformanceTable(res.data);
+                    } else {
+                        $tbody.html('<tr><td colspan="4" class="text-center text-muted">暂无数据</td></tr>');
+                    }
+                },
+                error: function() {
+                    $tbody.html('<tr><td colspan="4" class="text-center text-muted">数据加载失败，请稍后重试</td></tr>');
+                }
+            });
+        }
+
+        /**
+         * 渲染团队成员业绩表格
+         */
+        function renderMemberPerformanceTable(data) {
+            var $tbody = $('#memberPerformanceTableBody');
+            $tbody.empty();
+
+            $.each(data, function(index, item) {
+                var username = item.username || '';
+                var row = '<tr>' +
+                    '<td>' + (item.rank || (index + 1)) + '</td>' +
+                    '<td><a href="javascript:void(0);" class="member-name-clickable" data-username="' + encodeURIComponent(username) + '">' + username + '</a></td>' +
+                    '<td class="text-right profit-positive">' + (item.profit || '0.00') + '</td>' +
+                    '<td class="text-right">' + (item.profit_rate || '0.00') + '%</td>' +
+                    '</tr>';
+                $tbody.append(row);
+            });
+            
+            // 绑定业务员名称点击事件
+            bindMemberNameClick();
+        }
+        
+        /**
+         * 获取 URL 参数（在全局作用域中定义，供其他函数使用）
+         */
+        function getUrlParam(name) {
+            var reg = new RegExp("(^|&)" + name + "=([^&]*)(&|$)");
+            var r = window.location.search.substr(1).match(reg);
+            if (r != null) return decodeURIComponent(r[2]);
+            return null;
+        }
+        
+        /**
+         * 绑定业务员名称点击事件
+         */
+        function bindMemberNameClick() {
+            // 先移除旧的事件监听，避免重复绑定
+            $(document).off('click', '.member-name-clickable');
+            
+            // 使用事件委托绑定点击事件
+            $(document).on('click', '.member-name-clickable', function(e) {
+                e.preventDefault();
+                
+                // 移除其他业务员名称的 active 样式
+                $('.member-name-clickable').removeClass('is-active');
+                
+                // 给当前业务员名称添加 active 样式
+                $(this).addClass('is-active');
+                
+                // 获取业务员名称
+                var username = $(this).data('username') || $(this).text().trim();
+                console.log('[member click] 业务员名称:', username);
+                
+                if (!username) {
+                    console.error('[member click] 无法获取业务员名称');
+                    return;
+                }
+                
+                // 读取当前的时间筛选值
+                var timebucket = getUrlParam('timebucket') || 'month';
+                var at_time = getUrlParam('at_time') || '';
+                
+                // 检查是否在分栏布局中
+                if ($('#teamPerformanceSplitLayout').is(':visible')) {
+                    // 在分栏布局中：调用渲染函数，渲染到右列
+                    if (window.TeamSplit && typeof window.TeamSplit.renderMemberDetail === 'function') {
+                        window.TeamSplit.renderMemberDetail(username, timebucket, at_time);
+                    } else {
+                        console.error('[member click] TeamSplit.renderMemberDetail 函数不存在');
+                    }
+                } else {
+                    console.warn('[member click] 分栏布局未显示');
+                }
+            });
+        }
+    </script>
+</body>
+</html>
+

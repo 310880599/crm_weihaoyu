@@ -2497,4 +2497,555 @@ private function exportToExcel($data)
             'data' => $result
         ]);
     }
+    
+    /**
+     * 获取【团队】业绩数据
+     * 统计口径：按订单表 crm_client_order 的 pr_user -> admin.team_name 汇总
+     * 返回：team_name, order_count, total_profit, total_money, profit_rate
+     */
+    public function getTeamPerformanceData()
+    {
+        $timebucket = Request::param('timebucket', '');
+        $at_time    = Request::param('at_time', '');
+
+        $current_admin = Admin::getMyInfo();
+
+        // 1) 先取“业务人员名单”（用于限定统计范围，避免把无关账号算进去）
+        // 业务员包括：业务员(10)、业务主管(11)、产品总监(13)、产品经理(14) —— 你现有口径沿用
+        $business_users = Db::table('admin')
+            ->where($this->getOrgWhere($current_admin['org']))
+            ->where('group_id', 'in', [$this->ywgid, $this->ywzgid, $this->pdgid, 14])
+            ->where('username', '<>', '')
+            ->whereNotNull('username')
+            ->field('username,team_name')
+            ->limit(2000)
+            ->select();
+
+        if (empty($business_users)) {
+            return json(['code' => 0, 'msg' => '获取成功', 'data' => []]);
+        }
+
+        $usernames = array_filter(array_column($business_users, 'username'));
+        if (empty($usernames)) {
+            return json(['code' => 0, 'msg' => '获取成功', 'data' => []]);
+        }
+
+        // 2) 构建订单时间条件（逻辑沿用你 getPerformanceData 的写法）
+        $o_where = [];
+        $has_custom_time = false;
+
+        // 优先处理自定义时间范围（格式：start_date,end_date）
+        if (!empty($at_time) && strpos($at_time, ',') !== false) {
+            $date_parts = explode(',', $at_time);
+            if (count($date_parts) == 2) {
+                $start_date = trim($date_parts[0]);
+                $end_date   = trim($date_parts[1]);
+                if ($start_date && $end_date) {
+                    $has_custom_time = true;
+                    $o_where[] = ['o.order_time', '>=', $start_date . ' 00:00:00'];
+                    $o_where[] = ['o.order_time', '<=', $end_date . ' 23:59:59'];
+                }
+            }
+        }
+
+        // 如果没有自定义时间，使用 timebucket 参数
+        if (!$has_custom_time && !empty($timebucket)) {
+            $timeCondition = $this->buildTimeWhere($timebucket, 'o.order_time');
+            if (!empty($timeCondition)) {
+                $o_where[] = $timeCondition;
+            }
+        } elseif (!$has_custom_time && empty($timebucket) && empty($at_time)) {
+            // 如果都没有，默认使用本月
+            $timeCondition = $this->buildTimeWhere('month', 'o.order_time');
+            if (!empty($timeCondition)) {
+                $o_where[] = $timeCondition;
+            }
+        }
+
+        // 3) 订单表聚合：pr_user -> admin.team_name -> 按团队汇总
+        $query = Db::table('crm_client_order')->alias('o')
+            ->join('admin a', 'o.pr_user = a.username', 'LEFT')
+            ->where('o.pr_user', 'in', $usernames)
+            ->where($this->getOrgWhere($current_admin['org'])) // 确保组织隔离（admin 表条件）
+            ->field([
+                "IFNULL(NULLIF(a.team_name,''),'未分组') as team_name",
+                "COUNT(o.id) as order_count",
+                "SUM(o.profit) as total_profit",
+                "SUM(o.money) as total_money"
+            ])
+            ->group("IFNULL(NULLIF(a.team_name,''),'未分组')");
+
+        // 应用时间条件
+        if (!empty($o_where)) {
+            foreach ($o_where as $condition) {
+                if (is_array($condition)) {
+                    if (isset($condition[0]) && is_array($condition[0])) {
+                        // 嵌套数组，遍历处理
+                        foreach ($condition as $sub) {
+                            if (is_array($sub) && isset($sub[0])) {
+                                $query->where($sub[0], $sub[1] ?? '=', $sub[2] ?? null);
+                            }
+                        }
+                    } else {
+                        // 标准格式：[field, operator, value] 或 [field, 'between time', [start, end]]
+                        if (isset($condition[1]) && $condition[1] === 'between time' && isset($condition[2]) && is_array($condition[2])) {
+                            // 处理 between time 格式
+                            $query->where($condition[0], 'between time', $condition[2]);
+                        } else {
+                            // 处理标准 where 条件
+                            $query->where($condition[0], $condition[1] ?? '=', $condition[2] ?? null);
+                        }
+                    }
+                } elseif (is_callable($condition)) {
+                    $query->where($condition);
+                }
+            }
+        }
+
+        $rows = $query->select();
+
+        // 4) 补充利润率 + 排序
+        $result = [];
+        foreach ($rows as $r) {
+            $profit = (float)($r['total_profit'] ?: 0);
+            $money  = (float)($r['total_money'] ?: 0);
+            $rate   = $money > 0 ? round(($profit / $money) * 100, 2) : 0;
+
+            $result[] = [
+                'team_name'   => $r['team_name'],
+                'profit'      => number_format($profit, 2),
+                'profit_rate' => number_format($rate, 2),
+            ];
+        }
+
+        usort($result, function ($a, $b) {
+            $pa = floatval(str_replace(',', '', $a['profit']));
+            $pb = floatval(str_replace(',', '', $b['profit']));
+            return $pb <=> $pa;
+        });
+
+        // 加排名
+        $rank = 1;
+        foreach ($result as &$item) {
+            $item['rank'] = $rank++;
+        }
+        unset($item);
+
+        return json(['code' => 0, 'msg' => '获取成功', 'data' => $result]);
+    }
+
+    /**
+     * 团队成员业绩排行页面
+     * 用于渲染团队成员业绩排行的页面模板
+     */
+    public function teamMemberPerformancePage()
+    {
+        $team_name = Request::param('team_name', '');
+        $timebucket = Request::param('timebucket', '');
+        $at_time = Request::param('at_time', '');
+
+        $this->assign('team_name', $team_name);
+        $this->assign('timebucket', $timebucket);
+        $this->assign('at_time', $at_time);
+
+        return $this->fetch('operator/team_member_performance_table');
+    }
+
+    /**
+     * 获取团队成员业绩数据
+     * 返回指定团队下业务员的业绩排行数据
+     */
+    public function getTeamMemberPerformanceData()
+    {
+        $team_name = Request::param('team_name', '');
+        $timebucket = Request::param('timebucket', '');
+        $at_time = Request::param('at_time', '');
+
+        $current_admin = Admin::getMyInfo();
+
+        // 1) 获取指定团队下的业务员列表
+        $business_users_query = Db::table('admin')
+            ->where($this->getOrgWhere($current_admin['org']))
+            ->where('group_id', 'in', [$this->ywgid, $this->ywzgid, $this->pdgid, 14]) // 业务员、业务主管、产品总监、产品经理
+            ->where('username', '<>', '')
+            ->whereNotNull('username');
+
+        // 如果指定了团队名称，筛选该团队
+        if (!empty($team_name)) {
+            $business_users_query->where('team_name', '=', $team_name);
+        }
+
+        $business_users = $business_users_query
+            ->field('admin_id,username,team_name')
+            ->order('username')
+            ->limit(500)
+            ->select();
+
+        if (empty($business_users)) {
+            return json([
+                'code' => 200,
+                'msg' => 'ok',
+                'data' => []
+            ]);
+        }
+
+        // 提取所有业务员用户名
+        $usernames = array_filter(array_column($business_users, 'username'));
+        if (empty($usernames)) {
+            return json([
+                'code' => 200,
+                'msg' => 'ok',
+                'data' => []
+            ]);
+        }
+
+        $user_map = [];
+        foreach ($business_users as $user) {
+            if (!empty($user['username'])) {
+                $user_map[$user['username']] = $user;
+            }
+        }
+
+        // 2) 构建订单时间条件（复用 getPerformanceData 的逻辑）
+        $o_where = [];
+        $has_custom_time = false;
+
+        // 优先处理自定义时间范围（格式：start_date,end_date）
+        if (!empty($at_time) && strpos($at_time, ',') !== false) {
+            $date_parts = explode(',', $at_time);
+            if (count($date_parts) == 2) {
+                $start_date = trim($date_parts[0]);
+                $end_date = trim($date_parts[1]);
+                if ($start_date && $end_date) {
+                    $has_custom_time = true;
+                    $o_where[] = ['order_time', '>=', $start_date . ' 00:00:00'];
+                    $o_where[] = ['order_time', '<=', $end_date . ' 23:59:59'];
+                }
+            }
+        }
+
+        // 如果没有自定义时间，使用 timebucket 参数
+        if (!$has_custom_time && !empty($timebucket)) {
+            $timeCondition = $this->buildTimeWhere($timebucket, 'order_time');
+            if (!empty($timeCondition)) {
+                $o_where[] = $timeCondition;
+            }
+        } elseif (!$has_custom_time && empty($timebucket) && empty($at_time)) {
+            // 如果都没有，默认使用本月
+            $timeCondition = $this->buildTimeWhere('month', 'order_time');
+            if (!empty($timeCondition)) {
+                $o_where[] = $timeCondition;
+            }
+        }
+
+        // 3) 批量查询所有业务员的订单数据（通过 pr_user）
+        $order_base_query = Db::table('crm_client_order')
+            ->where('pr_user', 'in', $usernames);
+
+        // 应用时间条件
+        if (!empty($o_where)) {
+            foreach ($o_where as $condition) {
+                if (is_array($condition)) {
+                    if (isset($condition[0]) && is_array($condition[0])) {
+                        // 嵌套数组，遍历处理
+                        foreach ($condition as $sub_condition) {
+                            if (is_array($sub_condition) && isset($sub_condition[0])) {
+                                $order_base_query->where($sub_condition[0], $sub_condition[1] ?? '=', $sub_condition[2] ?? null);
+                            }
+                        }
+                    } else {
+                        // 标准格式：[field, operator, value] 或 [field, 'between time', [start, end]]
+                        if (isset($condition[1]) && $condition[1] === 'between time' && isset($condition[2]) && is_array($condition[2])) {
+                            // 处理 between time 格式
+                            $order_base_query->where($condition[0], 'between time', $condition[2]);
+                        } else {
+                            // 处理标准 where 条件
+                            $order_base_query->where($condition[0], $condition[1] ?? '=', $condition[2] ?? null);
+                        }
+                    }
+                } elseif (is_callable($condition)) {
+                    $order_base_query->where($condition);
+                }
+            }
+        }
+
+        // 批量获取订单统计：订单数、利润、金额
+        $order_stats = $order_base_query
+            ->field('pr_user, count(id) as order_count, sum(profit) as total_profit, sum(money) as total_money')
+            ->group('pr_user')
+            ->select();
+
+        $order_map = [];
+        foreach ($order_stats as $stat) {
+            $order_map[$stat['pr_user']] = [
+                'order_count' => (int)$stat['order_count'],
+                'total_profit' => (float)($stat['total_profit'] ?: 0),
+                'total_money' => (float)($stat['total_money'] ?: 0)
+            ];
+        }
+
+        // 4) 对于没有订单的业务员，尝试通过客户名称关联（备用方案）
+        $users_without_orders = [];
+        foreach ($usernames as $username) {
+            if (!isset($order_map[$username]) || $order_map[$username]['order_count'] == 0) {
+                $users_without_orders[] = $username;
+            }
+        }
+
+        if (!empty($users_without_orders)) {
+            // 批量获取这些业务员的客户名称
+            $customer_query = Db::table('crm_leads')
+                ->where('status', '=', 1)
+                ->where('pr_user', 'in', $users_without_orders)
+                ->where('kh_name', '<>', '')
+                ->where('kh_name', '<>', null)
+                ->field('pr_user, kh_name')
+                ->select();
+
+            $customer_map = [];
+            $all_customer_names = [];
+            foreach ($customer_query as $row) {
+                if (!isset($customer_map[$row['pr_user']])) {
+                    $customer_map[$row['pr_user']] = [];
+                }
+                $customer_map[$row['pr_user']][] = $row['kh_name'];
+                $all_customer_names[] = $row['kh_name'];
+            }
+
+            // 批量查询所有相关订单
+            if (!empty($all_customer_names)) {
+                $all_customer_names = array_unique($all_customer_names);
+
+                // 如果客户名称太多，限制查询数量以避免超时（最多1000个）
+                if (count($all_customer_names) > 1000) {
+                    $all_customer_names = array_slice($all_customer_names, 0, 1000);
+                }
+
+                $backup_order_query = Db::table('crm_client_order')
+                    ->where('cname', 'in', $all_customer_names);
+
+                // 应用时间条件
+                if (!empty($o_where)) {
+                    foreach ($o_where as $condition) {
+                        if (is_array($condition)) {
+                            if (isset($condition[0]) && is_array($condition[0])) {
+                                foreach ($condition as $sub_condition) {
+                                    if (is_array($sub_condition) && isset($sub_condition[0])) {
+                                        $backup_order_query->where($sub_condition[0], $sub_condition[1] ?? '=', $sub_condition[2] ?? null);
+                                    }
+                                }
+                            } else {
+                                $backup_order_query->where($condition[0], $condition[1] ?? '=', $condition[2] ?? null);
+                            }
+                        } elseif (is_callable($condition)) {
+                            $backup_order_query->where($condition);
+                        }
+                    }
+                }
+
+                // 批量获取所有订单数据，按客户名称分组
+                $backup_orders = $backup_order_query
+                    ->field('cname, count(id) as order_count, sum(profit) as total_profit, sum(money) as total_money')
+                    ->group('cname')
+                    ->select();
+
+                // 构建客户名称到订单统计的映射
+                $order_by_cname = [];
+                foreach ($backup_orders as $order_stat) {
+                    $order_by_cname[$order_stat['cname']] = [
+                        'order_count' => (int)$order_stat['order_count'],
+                        'total_profit' => (float)($order_stat['total_profit'] ?: 0),
+                        'total_money' => (float)($order_stat['total_money'] ?: 0)
+                    ];
+                }
+
+                // 将订单统计分配回对应的业务员
+                foreach ($users_without_orders as $username) {
+                    if (isset($customer_map[$username]) && !empty($customer_map[$username])) {
+                        $customer_names = $customer_map[$username];
+                        $user_order_count = 0;
+                        $user_total_profit = 0;
+                        $user_total_money = 0;
+
+                        foreach ($customer_names as $cname) {
+                            if (isset($order_by_cname[$cname])) {
+                                $user_order_count += $order_by_cname[$cname]['order_count'];
+                                $user_total_profit += $order_by_cname[$cname]['total_profit'];
+                                $user_total_money += $order_by_cname[$cname]['total_money'];
+                            }
+                        }
+
+                        if ($user_order_count > 0) {
+                            $order_map[$username] = [
+                                'order_count' => $user_order_count,
+                                'total_profit' => $user_total_profit,
+                                'total_money' => $user_total_money
+                            ];
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5) 组装结果数据
+        $result = [];
+        foreach ($business_users as $user) {
+            $username = $user['username'];
+
+            // 跳过用户名为空的记录
+            if (empty($username)) {
+                continue;
+            }
+
+            // 获取订单数据（如果没有数据则为0）
+            $order_data = isset($order_map[$username]) ? $order_map[$username] : ['order_count' => 0, 'total_profit' => 0, 'total_money' => 0];
+
+            $total_profit = $order_data['total_profit'];
+            $total_money = $order_data['total_money'];
+
+            // 计算利润率
+            $profit_rate = $total_money > 0 ? round(($total_profit / $total_money) * 100, 2) : 0;
+
+            $result[] = [
+                'username' => $username,
+                'profit' => number_format($total_profit, 2),
+                'profit_rate' => number_format($profit_rate, 2)
+            ];
+        }
+
+        // 按利润降序排序
+        usort($result, function($a, $b) {
+            $profit_a = floatval(str_replace(',', '', $a['profit']));
+            $profit_b = floatval(str_replace(',', '', $b['profit']));
+            return $profit_b <=> $profit_a;
+        });
+
+        // 添加排名（从1开始）
+        $rank = 1;
+        foreach ($result as &$item) {
+            $item['rank'] = $rank++;
+        }
+        unset($item);
+
+        return json([
+            'code' => 200,
+            'msg' => 'ok',
+            'data' => $result
+        ]);
+    }
+
+    /**
+     * 获取个人业绩清单
+     * 返回指定业务员的订单明细数据，按成交日期倒序排列
+     */
+    public function getMemberPerformanceDetail()
+    {
+        $username = Request::param('username', '');
+        $timebucket = Request::param('timebucket', '');
+        $at_time = Request::param('at_time', '');
+
+        if (empty($username)) {
+            return json([
+                'code' => 400,
+                'msg' => '业务员名称不能为空',
+                'data' => []
+            ]);
+        }
+
+        $current_admin = Admin::getMyInfo();
+
+        // 1) 构建订单时间条件（复用 getTeamMemberPerformanceData 的逻辑）
+        $o_where = [];
+        $has_custom_time = false;
+
+        // 优先处理自定义时间范围（格式：start_date,end_date）
+        if (!empty($at_time) && strpos($at_time, ',') !== false) {
+            $date_parts = explode(',', $at_time);
+            if (count($date_parts) == 2) {
+                $start_date = trim($date_parts[0]);
+                $end_date = trim($date_parts[1]);
+                if ($start_date && $end_date) {
+                    $has_custom_time = true;
+                    $o_where[] = ['order_time', '>=', $start_date . ' 00:00:00'];
+                    $o_where[] = ['order_time', '<=', $end_date . ' 23:59:59'];
+                }
+            }
+        }
+
+        // 如果没有自定义时间，使用 timebucket 参数
+        if (!$has_custom_time && !empty($timebucket)) {
+            $timeCondition = $this->buildTimeWhere($timebucket, 'order_time');
+            if (!empty($timeCondition)) {
+                $o_where[] = $timeCondition;
+            }
+        } elseif (!$has_custom_time && empty($timebucket) && empty($at_time)) {
+            // 如果都没有，默认使用本月
+            $timeCondition = $this->buildTimeWhere('month', 'order_time');
+            if (!empty($timeCondition)) {
+                $o_where[] = $timeCondition;
+            }
+        }
+
+        // 2) 查询该业务员的订单数据
+        $order_query = Db::table('crm_client_order')
+            ->where('pr_user', '=', $username);
+
+        // 应用时间条件
+        if (!empty($o_where)) {
+            foreach ($o_where as $condition) {
+                if (is_array($condition)) {
+                    if (isset($condition[0]) && is_array($condition[0])) {
+                        // 嵌套数组，遍历处理
+                        foreach ($condition as $sub_condition) {
+                            if (is_array($sub_condition) && isset($sub_condition[0])) {
+                                $order_query->where($sub_condition[0], $sub_condition[1] ?? '=', $sub_condition[2] ?? null);
+                            }
+                        }
+                    } else {
+                        // 标准格式：[field, operator, value] 或 [field, 'between time', [start, end]]
+                        if (isset($condition[1]) && $condition[1] === 'between time' && isset($condition[2]) && is_array($condition[2])) {
+                            // 处理 between time 格式
+                            $order_query->where($condition[0], 'between time', $condition[2]);
+                        } else {
+                            // 处理标准 where 条件
+                            $order_query->where($condition[0], $condition[1] ?? '=', $condition[2] ?? null);
+                        }
+                    }
+                } elseif (is_callable($condition)) {
+                    $order_query->where($condition);
+                }
+            }
+        }
+
+        // 3) 获取订单明细，按成交日期倒序排列
+        $orders = $order_query
+            ->field('order_time, cname as client_name, money as order_amount, profit')
+            ->order('order_time desc')
+            ->limit(1000) // 限制最多返回1000条，避免数据过多
+            ->select();
+
+        // 4) 格式化数据
+        $result = [];
+        foreach ($orders as $order) {
+            // 格式化日期（只显示日期部分，去掉时间）
+            $order_time = $order['order_time'];
+            if ($order_time && strpos($order_time, ' ') !== false) {
+                $order_time = explode(' ', $order_time)[0];
+            }
+
+            $result[] = [
+                'order_time' => $order_time ?: '',
+                'client_name' => $order['client_name'] ?: '',
+                'order_amount' => number_format((float)($order['order_amount'] ?: 0), 2),
+                'profit' => number_format((float)($order['profit'] ?: 0), 2)
+            ];
+        }
+
+        return json([
+            'code' => 200,
+            'msg' => 'ok',
+            'data' => $result
+        ]);
+    }
+
 }

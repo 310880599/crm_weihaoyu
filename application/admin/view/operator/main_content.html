@@ -18,12 +18,122 @@
         margin-bottom: 10px;
         border-radius: 4px;
     }
+    /* 两个业绩按钮：撑满列 */
+    .wukong-btn-per-user,
+    .wukong-btn-per-team{
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        font-weight: 600;
+    }
+
+    /* 左：业务员（保持你原本主色也行，这里给一个更高级的蓝） */
+    .wukong-btn-per-user{
+        background: linear-gradient(135deg, #2f7cf6, #1f5fd6);
+        border: none;
+        color: #fff;
+    }
+
+    /* 右：团队（换成绿色/青色，明显区分） */
+    .wukong-btn-per-team{
+        background: linear-gradient(135deg, #16a34a, #22c55e);
+        border: none;
+        color: #fff;
+    }
+
+    /* hover 微动效 */
+    .wukong-btn-per-user:hover,
+    .wukong-btn-per-team:hover{
+        filter: brightness(1.03);
+        transform: translateY(-1px);
+        transition: all .15s ease;
+    }
+
+    /* === split-layout start === */
+    /* 分栏布局样式 */
+    .split-wrap {
+        display: flex;
+        height: 100%;
+        width: 100%;
+    }
+    .split-left, .split-mid, .split-right {
+        transition: width 0.3s ease;
+        overflow: hidden;
+    }
+    .split-left.hidden, .split-mid.hidden, .split-right.hidden {
+        display: none !important;
+    }
+    .split-left.collapsed, .split-mid.collapsed, .split-right.collapsed {
+        width: 64px !important;
+        border: none !important;
+    }
+    /* collapsed 状态样式 */
+    .split-left.collapsed #teamPane,
+    .split-mid.collapsed #memberPane,
+    .split-right.collapsed #memberDetailPane {
+        display: none !important;
+    }
+    .split-left.collapsed .pane-header,
+    .split-mid.collapsed .pane-header,
+    .split-right.collapsed .pane-header {
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 10px 5px !important;
+        height: 100% !important;
+    }
+    .split-left.collapsed .pane-header > span,
+    .split-mid.collapsed .pane-header > span,
+    .split-right.collapsed .pane-header > span {
+        writing-mode: vertical-rl;
+        text-orientation: mixed;
+        margin-bottom: 10px;
+    }
+    .split-left.collapsed .pane-header > div,
+    .split-mid.collapsed .pane-header > div,
+    .split-right.collapsed .pane-header > div {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 5px;
+    }
+    .split-left.maximized, .split-mid.maximized, .split-right.maximized {
+        width: 100% !important;
+    }
+    /* 业务员名称可点击样式 */
+    .member-name-clickable {
+        color: #4f7cff;
+        cursor: pointer;
+        font-weight: 600;
+        transition: all 0.2s;
+        text-decoration: none;
+    }
+    .member-name-clickable:hover {
+        color: #6fa1ff;
+        text-decoration: underline;
+    }
+    .member-name-clickable.is-active {
+        background-color: #e8f1ff;
+        padding: 4px 8px;
+        border-radius: 4px;
+    }
+    /* === split-layout end === */
+
  </style>
 <div class="col-md-8">
+    <!-- 业绩按钮：左业务员，右团队 -->
     <div class="row g-3 mb-3">
-        <div class="col-12">
-            <button type="button" class="btn btn-primary wukong-btn wukong-btn-primary" id="showPerformanceBtn">
+        <div class="col-md-6">
+            <button type="button" class="btn wukong-btn wukong-btn-primary wukong-btn-per-user" id="showPerformanceBtn">
                 <i class="bi bi-bar-chart-line"></i> 查看业务人员业绩表
+            </button>
+        </div>
+        <div class="col-md-6">
+            <button type="button" class="btn wukong-btn wukong-btn-primary wukong-btn-per-team" id="showTeamPerformanceBtn">
+                <i class="bi bi-people-fill"></i> 查看团队业绩表
             </button>
         </div>
     </div>
@@ -388,6 +498,85 @@
         </div>
     </div>
 </div>
+<!-- ==========【新增开始：团队业绩表弹窗】========== -->
+    {include file="operator/team_performance_table"/}
+<!-- ==========【新增结束：团队业绩表弹窗】========== -->
+
+<!-- === split-layout start === -->
+<!-- 团队业绩分栏布局容器 -->
+<div id="teamPerformanceSplitLayout" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #f6f8fb; z-index: 20000001;">
+    <div class="split-wrap" style="display: flex; height: 100%; width: 100%; overflow: hidden;">
+        <!-- 左列：团队列表 -->
+        <div class="split-left" style="width: 30%; background: #ffffff; border-right: 1px solid #e9ecef; display: flex; flex-direction: column; overflow: hidden;">
+            <div class="pane-header" style="padding: 15px; background: linear-gradient(90deg, #4f7cff, #6fa1ff); color: #fff; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
+                <span style="font-size: 16px; font-weight: 600;">🧩 团队列表</span>
+                <div>
+                    <button class="btn btn-sm btn-light" id="splitLeftMaximize" title="最大化/恢复">
+                        <i class="bi bi-arrows-angle-expand"></i>
+                    </button>
+                    <button class="btn btn-sm btn-light" id="splitLeftCollapse" title="收起/展开">
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
+                    <button class="btn btn-sm btn-light" id="splitLayoutClose" title="关闭" style="margin-left: 8px;">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="teamPane" style="flex: 1; overflow-y: auto; padding: 20px;">
+                <!-- 团队列表内容将在这里渲染 -->
+            </div>
+        </div>
+        
+        <!-- 中列：成员排名 -->
+        <div class="split-mid" style="width: 35%; background: #ffffff; border-right: 1px solid #e9ecef; display: flex; flex-direction: column; overflow: hidden;">
+            <div class="pane-header" style="padding: 15px; background: linear-gradient(90deg, #4f7cff, #6fa1ff); color: #fff; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
+                <span style="font-size: 16px; font-weight: 600;" id="memberPaneTitle">👥 成员业绩排名</span>
+                <div>
+                    <button class="btn btn-sm btn-light" id="splitMidRefresh" title="刷新">
+                        <i class="bi bi-arrow-repeat"></i> 刷新
+                    </button>
+                    <button class="btn btn-sm btn-light" id="splitMidMaximize" title="最大化/恢复">
+                        <i class="bi bi-arrows-angle-expand"></i>
+                    </button>
+                    <button class="btn btn-sm btn-light" id="splitMidCollapse" title="收起/展开">
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="memberPane" style="flex: 1; overflow-y: auto; padding: 20px;">
+                <div class="empty" style="text-align: center; padding: 60px 20px; color: #6c757d;">
+                    <i class="bi bi-inbox" style="font-size: 48px; margin-bottom: 15px; display: block;"></i>
+                    <p style="font-size: 16px; margin: 0;">请选择团队查看成员业绩排名</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 右列：个人业绩清单 -->
+        <div class="split-right" style="width: 35%; background: #ffffff; display: flex; flex-direction: column; overflow: hidden;">
+            <div class="pane-header" style="padding: 15px; background: linear-gradient(90deg, #4f7cff, #6fa1ff); color: #fff; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
+                <span style="font-size: 16px; font-weight: 600;" id="memberDetailPaneTitle">📋 个人业绩清单</span>
+                <div>
+                    <button class="btn btn-sm btn-light" id="splitRightRefresh" title="刷新">
+                        <i class="bi bi-arrow-repeat"></i> 刷新
+                    </button>
+                    <button class="btn btn-sm btn-light" id="splitRightMaximize" title="最大化/恢复">
+                        <i class="bi bi-arrows-angle-expand"></i>
+                    </button>
+                    <button class="btn btn-sm btn-light" id="splitRightCollapse" title="收起/展开">
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="memberDetailPane" style="flex: 1; overflow-y: auto; padding: 20px;">
+                <div class="empty" style="text-align: center; padding: 60px 20px; color: #6c757d;">
+                    <i class="bi bi-inbox" style="font-size: 48px; margin-bottom: 15px; display: block;"></i>
+                    <p style="font-size: 16px; margin: 0;">请点击业务员名称查看个人业绩清单</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- === split-layout end === -->
 
 
 <script>
@@ -531,6 +720,762 @@
             }
         });
     });
+
+
+    // ==========【新增开始：团队业绩表 - 点击按钮显示分栏布局】==========
+
+    // === split-layout start ===
+    // 显示团队业绩表（分栏布局）
+    $('#showTeamPerformanceBtn').off('click').on('click', function () {
+        var $btn = $(this);
+        var originalText = $btn.html();
+
+        // 禁用按钮防止重复点击
+        $btn.prop('disabled', true).html('<i class="bi bi-hourglass-split"></i> 加载中...');
+
+        // loading
+        var loading = layer.load(2, { time: 30 * 1000 });
+
+        // 默认时间：month
+        var timebucket = 'month';
+        var at_time = '';
+
+        // 加载数据并显示分栏布局
+        loadTeamPerformanceData(timebucket, at_time, function() {
+            layer.close(loading);
+            $btn.prop('disabled', false).html(originalText);
+
+            // 显示分栏布局
+            $('#teamPerformanceSplitLayout').show();
+            
+            // 将团队列表内容渲染到左列
+            renderTeamListToPane();
+            
+            // 绑定筛选事件和分栏控制事件
+            bindTeamPerformanceEvents();
+            bindSplitLayoutEvents();
+        }, function() {
+            layer.close(loading);
+            $btn.prop('disabled', false).html(originalText);
+        });
+    });
+
+    // 将团队列表渲染到左列容器
+    function renderTeamListToPane() {
+        var $teamPane = $('#teamPane');
+        var $modal = $('#teamPerformanceModal');
+        
+        // 将弹窗内容移动到左列（但不显示弹窗）
+        if ($modal.length && $modal.find('.wukong-table-card').length) {
+            var $card = $modal.find('.wukong-table-card').clone();
+            // 移除刷新按钮（因为已经在头部有了）
+            $card.find('#teamPerformanceRefresh').remove();
+            $teamPane.empty().append($card);
+            
+            // 重新绑定事件（因为元素是克隆的，需要重新绑定）
+            setTimeout(function() {
+                initTeamRowClick();
+            }, 100);
+        }
+    }
+
+    // 绑定分栏布局控制事件
+    function bindSplitLayoutEvents() {
+        // 关闭分栏布局（点击遮罩或ESC键）
+        $(document).off('keydown.splitLayout').on('keydown.splitLayout', function(e) {
+            if (e.keyCode === 27) { // ESC键
+                $('#teamPerformanceSplitLayout').hide();
+            }
+        });
+
+        // 左列最大化/恢复
+        $('#splitLeftMaximize').off('click').on('click', function() {
+            var $left = $('.split-left');
+            var $mid = $('.split-mid');
+            var $right = $('.split-right');
+            if ($left.hasClass('maximized')) {
+                $left.removeClass('maximized').css('width', '30%');
+                $mid.removeClass('hidden').css('width', '35%');
+                $right.css('width', '35%');
+            } else {
+                $left.addClass('maximized').css('width', '100%');
+                $mid.addClass('hidden').css('width', '0');
+                $right.css('width', '0');
+            }
+        });
+
+        // 左列收起/展开
+        $('#splitLeftCollapse').off('click').on('click', function() {
+            var $left = $('.split-left');
+            var $mid = $('.split-mid');
+            var $right = $('.split-right');
+            if ($left.hasClass('collapsed')) {
+                $left.removeClass('collapsed').css('width', '30%');
+                $mid.css('width', '35%');
+                $right.css('width', '35%');
+            } else {
+                $left.addClass('collapsed').css('width', '64px');
+                $mid.css('width', 'calc((100% - 64px) / 2)');
+                $right.css('width', 'calc((100% - 64px) / 2)');
+            }
+        });
+
+        // 中列最大化/恢复
+        $('#splitMidMaximize').off('click').on('click', function() {
+            var $left = $('.split-left');
+            var $mid = $('.split-mid');
+            var $right = $('.split-right');
+            if ($mid.hasClass('maximized')) {
+                $mid.removeClass('maximized').css('width', '35%');
+                $right.css('width', '35%');
+                $left.removeClass('hidden').css('width', '30%');
+            } else {
+                $mid.addClass('maximized').css('width', '100%');
+                $right.css('width', '0');
+                $left.addClass('hidden').css('width', '0');
+            }
+        });
+
+        // 中列收起/展开
+        $('#splitMidCollapse').off('click').on('click', function() {
+            var $mid = $('.split-mid');
+            var $right = $('.split-right');
+            if ($mid.hasClass('collapsed')) {
+                $mid.removeClass('collapsed').css('width', '35%');
+                $right.css('width', '35%');
+                $('.split-left').css('width', '30%');
+            } else {
+                $mid.addClass('collapsed').css('width', '64px');
+                $right.css('width', 'calc(70% - 64px)');
+                $('.split-left').css('width', '30%');
+            }
+        });
+        
+        // 右列最大化/恢复
+        $('#splitRightMaximize').off('click').on('click', function() {
+            var $right = $('.split-right');
+            var $left = $('.split-left');
+            var $mid = $('.split-mid');
+            if ($right.hasClass('maximized')) {
+                $right.removeClass('maximized').css('width', '35%');
+                $left.removeClass('hidden').css('width', '30%');
+                $mid.css('width', '35%');
+            } else {
+                $right.addClass('maximized').css('width', '100%');
+                $left.addClass('hidden').css('width', '0');
+                $mid.css('width', '0');
+            }
+        });
+        
+        // 右列收起/展开
+        $('#splitRightCollapse').off('click').on('click', function() {
+            var $right = $('.split-right');
+            var $mid = $('.split-mid');
+            if ($right.hasClass('collapsed')) {
+                $right.removeClass('collapsed').css('width', '35%');
+                $mid.css('width', '35%');
+                $('.split-left').css('width', '30%');
+            } else {
+                $right.addClass('collapsed').css('width', '64px');
+                $mid.css('width', 'calc(70% - 64px)');
+                $('.split-left').css('width', '30%');
+            }
+        });
+        
+        // 右列刷新按钮
+        $('#splitRightRefresh').off('click').on('click', function() {
+            var $activeMember = $('.member-name-clickable.is-active');
+            if ($activeMember.length > 0) {
+                // 获取业务员名称：优先读取原始属性并进行解码
+                var raw = $activeMember.attr('data-username') || $activeMember.text().trim();
+                var username = raw;
+                try { 
+                    username = decodeURIComponent(raw); 
+                } catch(e) { 
+                    username = raw; 
+                }
+                username = (username || '').trim();
+                
+                if (window.TeamSplit && username) {
+                    var timebucket = window.TeamSplit.lastTimebucket || 'month';
+                    var at_time = window.TeamSplit.lastAtTime || '';
+                    window.TeamSplit.renderMemberDetail(username, timebucket, at_time);
+                }
+            } else {
+                layer.msg('请先选择业务员', {icon: 2});
+            }
+        });
+
+        // 中列刷新按钮
+        $('#splitMidRefresh').off('click').on('click', function() {
+            if (window.TeamSplit && window.TeamSplit.lastTeamId) {
+                var timeParams = getTeamTimeParams();
+                if (!timeParams) {
+                    // 自定义时间未选择完整，使用保存的时间参数
+                    timeParams = {
+                        timebucket: window.TeamSplit.lastTimebucket || 'month',
+                        at_time: window.TeamSplit.lastAtTime || ''
+                    };
+                }
+                window.TeamSplit.renderMemberRank(window.TeamSplit.lastTeamId, window.TeamSplit.lastTeamName, timeParams.timebucket, timeParams.at_time);
+            } else {
+                layer.msg('请先选择团队', {icon: 2});
+            }
+        });
+
+        // 关闭分栏布局
+        $('#splitLayoutClose').off('click').on('click', function() {
+            $('#teamPerformanceSplitLayout').hide();
+        });
+    }
+    // === split-layout end ===
+
+    // 加载团队业绩数据
+    function loadTeamPerformanceData(timebucket, at_time, successCallback, errorCallback) {
+        // 禁用筛选/重置按钮（支持弹窗和分栏布局）
+        var $filterBtn = $('#teamPerformanceFilterBtn, #teamPane #teamPerformanceFilterBtn');
+        var $resetBtn = $('#teamPerformanceResetBtn, #teamPane #teamPerformanceResetBtn');
+        var originalFilterText = $filterBtn.first().html();
+        var originalResetText = $resetBtn.first().html();
+        
+        $filterBtn.prop('disabled', true).html('<i class="bi bi-hourglass-split"></i> 加载中...');
+        $resetBtn.prop('disabled', true);
+
+        var loading = layer.load(2, { time: 30 * 1000 });
+
+        // 更新全局时间状态（使用传入的真实时间参数）
+        if (window.TeamSplit) {
+            window.TeamSplit.lastTimebucket = timebucket || 'month';
+            window.TeamSplit.lastAtTime = at_time || '';
+        }
+
+        $.ajax({
+            url: '{:url("Operator/getTeamPerformanceData")}',
+            type: 'POST',
+            data: {
+                timebucket: timebucket || '',
+                at_time: at_time || ''
+            },
+            dataType: 'json',
+            timeout: 30000,
+            success: function (res) {
+                layer.close(loading);
+                $filterBtn.prop('disabled', false).html(originalFilterText);
+                $resetBtn.prop('disabled', false).html(originalResetText);
+
+                if (res.code === 0 || res.code === 200) {
+                    window.teamPerformanceAllData = res.data || [];
+                    window.teamPerformanceTableData = res.data || [];
+
+                    // 渲染表格
+                    renderTeamPerformanceTable(window.teamPerformanceTableData);
+
+                    // 如果在分栏布局中，实现联动刷新
+                    if ($('#teamPerformanceSplitLayout').is(':visible') && window.TeamSplit) {
+                        // 检查当前选中的团队是否在新数据中存在
+                        var currentTeamExists = false;
+                        if (window.TeamSplit.lastTeamId && window.teamPerformanceAllData) {
+                            for (var i = 0; i < window.teamPerformanceAllData.length; i++) {
+                                if (window.teamPerformanceAllData[i].team_name === window.TeamSplit.lastTeamName) {
+                                    currentTeamExists = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 如果已选择团队且团队仍存在，刷新成员排名
+                        if (window.TeamSplit.lastTeamId && currentTeamExists) {
+                            // 使用本次筛选的时间参数（传入的timebucket和at_time）
+                            var currentTimebucket = timebucket || 'month';
+                            var currentAtTime = at_time || '';
+                            
+                            window.TeamSplit.renderMemberRank(
+                                window.TeamSplit.lastTeamId,
+                                window.TeamSplit.lastTeamName,
+                                currentTimebucket,
+                                currentAtTime
+                            );
+                            
+                            // renderMemberRank内部会在success回调中自动刷新个人订单清单（如果已选择成员）
+                        } else {
+                            // 如果团队不存在，清空中间和右侧面板
+                            if (!currentTeamExists && window.TeamSplit.lastTeamId) {
+                                $('#memberPane').html('<div class="empty" style="text-align: center; padding: 60px 20px; color: #6c757d;"><i class="bi bi-inbox" style="font-size: 48px; margin-bottom: 15px; display: block;"></i><p style="font-size: 16px; margin: 0;">当前时间范围无数据</p></div>');
+                                $('#memberDetailPane').html('<div class="empty" style="text-align: center; padding: 60px 20px; color: #6c757d;"><i class="bi bi-inbox" style="font-size: 48px; margin-bottom: 15px; display: block;"></i><p style="font-size: 16px; margin: 0;">请点击业务员名称查看个人业绩清单</p></div>');
+                                // 清空选中状态
+                                window.TeamSplit.lastTeamId = null;
+                                window.TeamSplit.lastTeamName = null;
+                                window.TeamSplit.lastMemberName = null;
+                                $('#teamPerformanceTableBody tr.team-row, #teamPane #teamPerformanceTableBody tr.team-row').removeClass('is-active');
+                                $('.member-name-clickable').removeClass('is-active');
+                            }
+                        }
+                    }
+
+                    if (successCallback) {
+                        successCallback();
+                    }
+                } else {
+                    layer.msg(res.msg || '获取团队业绩数据失败', { icon: 2 });
+                    if (errorCallback) {
+                        errorCallback();
+                    }
+                }
+            },
+            error: function (xhr, status) {
+                layer.close(loading);
+                $filterBtn.prop('disabled', false).html(originalFilterText);
+                $resetBtn.prop('disabled', false).html(originalResetText);
+                
+                layer.msg(status === 'timeout' ? '请求超时，请稍后重试' : '网络错误，获取数据失败', { icon: 2 });
+                if (errorCallback) {
+                    errorCallback();
+                }
+            }
+        });
+    }
+
+    // 渲染团队业绩表（支持弹窗和分栏布局）
+    function renderTeamPerformanceTable(data) {
+        // 支持在弹窗和分栏布局中渲染
+        var $tbody = $('#teamPerformanceTableBody, #teamPane #teamPerformanceTableBody');
+        if (!$tbody.length) return;
+
+        $tbody.empty();
+
+        if (data && data.length) {
+            $.each(data, function (idx, item) {
+                var teamName = item.team_name || '';
+                var row = '<tr class="team-row" data-team="' + (teamName.replace(/"/g, '&quot;')) + '">' +
+                    '<td>' + (item.rank || (idx + 1)) + '</td>' +
+                    '<td><strong style="color:#4f7cff;">' + teamName + '</strong></td>' +
+                    '<td style="text-align:right; color:#28a745;">' + (item.profit || '0.00') + '</td>' +
+                    '<td style="text-align:right;">' + (item.profit_rate || '0.00') + '%</td>' +
+                    '</tr>';
+                $tbody.append(row);
+            });
+        } else {
+            $tbody.append('<tr><td colspan="4" class="text-center text-muted">暂无数据</td></tr>');
+        }
+        
+        // 如果在分栏布局中，重新绑定点击事件
+        if ($('#teamPerformanceSplitLayout').is(':visible')) {
+            setTimeout(function() {
+                initTeamRowClick();
+            }, 100);
+        }
+    }
+
+    // 统一获取团队业绩时间参数（优先读取可见的控件，优先teamPane）
+    function getTeamTimeParams() {
+        // 优先读取分栏左侧可见的控件
+        var $timeFilter = $('#teamPane #teamPerformanceTimeFilter:visible');
+        if ($timeFilter.length === 0) {
+            // 如果没取到，再读取弹窗可见控件
+            $timeFilter = $('#teamPerformanceTimeFilter:visible');
+        }
+        
+        if ($timeFilter.length === 0) {
+            // 如果都取不到，返回默认值
+            return {timebucket: 'month', at_time: ''};
+        }
+        
+        var timeFilter = $timeFilter.val() || 'month';
+        var timebucket = '';
+        var at_time = '';
+        
+        if (timeFilter === 'custom') {
+            // 自定义时间：优先读取teamPane内的start/end（:visible），其次弹窗
+            var $startDate = $('#teamPane #teamPerformanceStartDate:visible');
+            var $endDate = $('#teamPane #teamPerformanceEndDate:visible');
+            if ($startDate.length === 0) {
+                $startDate = $('#teamPerformanceStartDate:visible');
+            }
+            if ($endDate.length === 0) {
+                $endDate = $('#teamPerformanceEndDate:visible');
+            }
+            
+            var startDate = $startDate.val();
+            var endDate = $endDate.val();
+            
+            if (startDate && endDate) {
+                at_time = startDate + ',' + endDate;
+                timebucket = '';
+            } else {
+                layer.msg('请选择开始日期和结束日期', {icon: 2});
+                return null;
+            }
+        } else {
+            timebucket = timeFilter;
+            at_time = '';
+        }
+        
+        return {timebucket: timebucket, at_time: at_time};
+    }
+
+    // 绑定团队业绩表的筛选/重置事件
+    function bindTeamPerformanceEvents() {
+        // 初始化行点击事件（使用事件委托）
+        if (typeof initTeamRowClick === 'function') {
+            initTeamRowClick();
+        }
+        
+        // 时间筛选下拉变化（支持弹窗和分栏布局）
+        $('#teamPerformanceTimeFilter, #teamPane #teamPerformanceTimeFilter').off('change').on('change', function() {
+            var value = $(this).val();
+            var $customRange = $('#teamPerformanceCustomTimeRange, #teamPane #teamPerformanceCustomTimeRange');
+            if (value === 'custom') {
+                $customRange.css('display', 'flex');
+            } else {
+                $customRange.css('display', 'none');
+            }
+        });
+
+        // 筛选按钮点击（支持弹窗和分栏布局）
+        $('#teamPerformanceFilterBtn, #teamPane #teamPerformanceFilterBtn').off('click').on('click', function() {
+            var timeParams = getTeamTimeParams();
+            if (!timeParams) {
+                return; // 自定义时间未选择完整，getTeamTimeParams已经提示了
+            }
+            loadTeamPerformanceData(timeParams.timebucket, timeParams.at_time);
+        });
+
+        // 重置按钮点击（支持弹窗和分栏布局）
+        $('#teamPerformanceResetBtn, #teamPane #teamPerformanceResetBtn').off('click').on('click', function() {
+            $('#teamPerformanceTimeFilter, #teamPane #teamPerformanceTimeFilter').val('month');
+            $('#teamPerformanceStartDate, #teamPane #teamPerformanceStartDate').val('');
+            $('#teamPerformanceEndDate, #teamPane #teamPerformanceEndDate').val('');
+            $('#teamPerformanceCustomTimeRange, #teamPane #teamPerformanceCustomTimeRange').css('display', 'none');
+            
+            loadTeamPerformanceData('month', '');
+        });
+
+        // 刷新按钮（支持弹窗和分栏布局）
+        $('#teamPerformanceRefresh, #teamPane #teamPerformanceRefresh').off('click').on('click', function() {
+            var timeParams = getTeamTimeParams();
+            if (!timeParams) {
+                // 自定义时间未选择完整，使用默认值
+                timeParams = {timebucket: 'month', at_time: ''};
+            }
+            loadTeamPerformanceData(timeParams.timebucket, timeParams.at_time);
+        });
+    }
+
+    // ==========【新增结束：团队业绩表 - 点击按钮加载数据并弹窗】==========
+
+    // === split-layout start ===
+    // TeamSplit 对象：管理分栏布局的成员排名渲染
+    window.TeamSplit = window.TeamSplit || {
+        lastTeamId: null,
+        lastTeamName: null,
+        lastMemberName: null,
+        lastTimebucket: 'month',
+        lastAtTime: '',
+
+        /**
+         * 渲染成员排名到中列容器
+         * @param {string} teamId - 团队ID（这里用team_name作为ID）
+         * @param {string} teamName - 团队名称
+         * @param {string} timebucket - 时间筛选（today/yesterday/week/month/year/custom）
+         * @param {string} at_time - 自定义时间范围（格式：start_date,end_date）
+         */
+        renderMemberRank: function(teamId, teamName, timebucket, at_time) {
+            var self = this;
+            
+            // 保存当前选择的团队信息和时间参数
+            self.lastTeamId = teamId;
+            self.lastTeamName = teamName;
+            self.lastTimebucket = timebucket || 'month';
+            self.lastAtTime = at_time || '';
+
+            // 更新中列标题
+            var timeDisplay = self._formatTimeDisplay(timebucket, at_time);
+            $('#memberPaneTitle').html('👥 团队：' + (teamName || '未知团队') + ' - 成员业绩排名 <small style="font-size: 12px; opacity: 0.8;">(' + timeDisplay + ')</small>');
+
+            // 获取中列容器
+            var $memberPane = $('#memberPane');
+            if (!$memberPane.length) {
+                console.error('[TeamSplit] #memberPane 容器不存在');
+                layer.msg('渲染容器不存在', {icon: 2});
+                return;
+            }
+
+            // 显示加载状态
+            $memberPane.html('<div class="text-center" style="padding: 60px 20px; color: #6c757d;"><i class="bi bi-hourglass-split" style="font-size: 24px; display: block; margin-bottom: 15px;"></i><p>加载中...</p></div>');
+
+            // 调用接口获取数据
+            $.ajax({
+                url: '{:url("Operator/getTeamMemberPerformanceData")}',
+                type: 'POST',
+                data: {
+                    team_name: teamName,
+                    timebucket: timebucket || '',
+                    at_time: at_time || ''
+                },
+                dataType: 'json',
+                timeout: 30000,
+                success: function(res) {
+                    if (res.code === 200 && res.data && res.data.length > 0) {
+                        // 渲染表格
+                        self._renderMemberTable($memberPane, res.data, teamName, timeDisplay);
+                        
+                        // 检查当前选中的成员是否在新数据中存在
+                        var currentMemberExists = false;
+                        if (self.lastMemberName && res.data) {
+                            for (var i = 0; i < res.data.length; i++) {
+                                if (res.data[i].username === self.lastMemberName) {
+                                    currentMemberExists = true;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // 如果已选择成员且成员仍存在，自动刷新个人订单清单
+                        if (self.lastMemberName && currentMemberExists) {
+                            self.renderMemberDetail(self.lastMemberName, timebucket || self.lastTimebucket, at_time || self.lastAtTime);
+                        } else if (self.lastMemberName && !currentMemberExists) {
+                            // 如果成员不存在，清空右侧面板
+                            $('#memberDetailPane').html('<div class="empty" style="text-align: center; padding: 60px 20px; color: #6c757d;"><i class="bi bi-inbox" style="font-size: 48px; margin-bottom: 15px; display: block;"></i><p style="font-size: 16px; margin: 0;">当前时间范围无数据</p></div>');
+                            self.lastMemberName = null;
+                            $('.member-name-clickable').removeClass('is-active');
+                        }
+                    } else {
+                        $memberPane.html('<div class="text-center" style="padding: 60px 20px; color: #6c757d;"><i class="bi bi-inbox" style="font-size: 48px; display: block; margin-bottom: 15px;"></i><p>暂无数据</p></div>');
+                        // 清空右侧面板
+                        if (self.lastMemberName) {
+                            $('#memberDetailPane').html('<div class="empty" style="text-align: center; padding: 60px 20px; color: #6c757d;"><i class="bi bi-inbox" style="font-size: 48px; margin-bottom: 15px; display: block;"></i><p style="font-size: 16px; margin: 0;">请点击业务员名称查看个人业绩清单</p></div>');
+                            self.lastMemberName = null;
+                            $('.member-name-clickable').removeClass('is-active');
+                        }
+                    }
+                },
+                error: function(xhr, status) {
+                    var errorMsg = status === 'timeout' ? '请求超时，请稍后重试' : '数据加载失败，请稍后重试';
+                    $memberPane.html('<div class="text-center" style="padding: 60px 20px; color: #dc3545;"><i class="bi bi-exclamation-triangle" style="font-size: 48px; display: block; margin-bottom: 15px;"></i><p>' + errorMsg + '</p></div>');
+                }
+            });
+        },
+
+        /**
+         * 格式化时间显示
+         * @private
+         */
+        _formatTimeDisplay: function(timebucket, at_time) {
+            if (at_time && at_time.indexOf(',') !== -1) {
+                var dates = at_time.split(',');
+                if (dates.length === 2) {
+                    return dates[0].trim() + ' 至 ' + dates[1].trim();
+                }
+                return at_time;
+            } else if (timebucket) {
+                var timeMap = {
+                    'today': '今天',
+                    'yesterday': '昨天',
+                    'week': '本周',
+                    'month': '本月',
+                    'year': '本年'
+                };
+                return timeMap[timebucket] || timebucket;
+            }
+            return '本月';
+        },
+
+        /**
+         * 渲染成员排名表格
+         * @private
+         */
+        _renderMemberTable: function($container, data, teamName, timeDisplay) {
+            var html = '<div style="background: #ffffff; border-radius: 8px; overflow: hidden;">' +
+                '<div style="padding: 15px 20px; border-bottom: 1px solid #e9ecef; background: #f8f9fa;">' +
+                '<span style="margin-right: 20px; color: #495057;">团队名称：<strong style="color: #212529;">' + (teamName || '未知团队') + '</strong></span>' +
+                '<span style="color: #495057;">时间口径：<strong style="color: #212529;">' + timeDisplay + '</strong></span>' +
+                '</div>' +
+                '<div style="padding: 20px; overflow-x: auto;">' +
+                '<table class="wukong-table" style="width: 100%; border-collapse: collapse;">' +
+                '<thead style="background: #f8f9fa;">' +
+                '<tr>' +
+                '<th style="width: 80px; padding: 12px; text-align: left; font-weight: 600; color: #495057; border-bottom: 2px solid #dee2e6;">排名</th>' +
+                '<th style="padding: 12px; text-align: left; font-weight: 600; color: #495057; border-bottom: 2px solid #dee2e6;">业务员名称</th>' +
+                '<th style="padding: 12px; text-align: right; font-weight: 600; color: #495057; border-bottom: 2px solid #dee2e6;">总利润</th>' +
+                '<th style="padding: 12px; text-align: right; font-weight: 600; color: #495057; border-bottom: 2px solid #dee2e6;">利润率</th>' +
+                '</tr>' +
+                '</thead>' +
+                '<tbody>';
+
+            if (data && data.length > 0) {
+                $.each(data, function(index, item) {
+                    var username = item.username || '';
+                    html += '<tr style="border-bottom: 1px solid #dee2e6;">' +
+                        '<td style="padding: 12px;">' + (item.rank || (index + 1)) + '</td>' +
+                        '<td style="padding: 12px;"><a href="javascript:void(0);" class="member-name-clickable" data-username="' + encodeURIComponent(username) + '" style="color: #4f7cff; cursor: pointer; font-weight: 600; text-decoration: none; transition: all 0.2s;">' + username + '</a></td>' +
+                        '<td style="padding: 12px; text-align: right; color: #28a745;">' + (item.profit || '0.00') + '</td>' +
+                        '<td style="padding: 12px; text-align: right;">' + (item.profit_rate || '0.00') + '%</td>' +
+                        '</tr>';
+                });
+            } else {
+                html += '<tr><td colspan="4" style="padding: 40px; text-align: center; color: #6c757d;">暂无数据</td></tr>';
+            }
+
+            html += '</tbody></table></div></div>';
+
+            $container.html(html);
+            
+            // 绑定业务员名称点击事件
+            this._bindMemberNameClick();
+        },
+        
+        /**
+         * 绑定业务员名称点击事件
+         * @private
+         */
+        _bindMemberNameClick: function() {
+            var self = this;
+            // 先移除旧的事件监听，避免重复绑定
+            $(document).off('click', '.member-name-clickable');
+            
+            // 使用事件委托绑定点击事件
+            $(document).on('click', '.member-name-clickable', function(e) {
+                e.preventDefault();
+                
+                // 移除其他业务员名称的 active 样式
+                $('.member-name-clickable').removeClass('is-active');
+                
+                // 给当前业务员名称添加 active 样式
+                $(this).addClass('is-active');
+                
+                // 获取业务员名称：优先读取原始属性并进行解码
+                var raw = $(this).attr('data-username') || $(this).text().trim();
+                var username = raw;
+                try { 
+                    username = decodeURIComponent(raw); 
+                } catch(e) { 
+                    username = raw; 
+                }
+                username = (username || '').trim();
+                
+                console.log('[member click] 业务员名称:', username);
+                
+                if (!username) {
+                    console.error('[member click] 无法获取业务员名称');
+                    return;
+                }
+                
+                // 使用当前筛选的时间参数（优先从筛选器获取，否则使用保存的时间参数）
+                var timeParams = getTeamTimeParams();
+                var timebucket = '';
+                var at_time = '';
+                
+                if (timeParams) {
+                    timebucket = timeParams.timebucket;
+                    at_time = timeParams.at_time;
+                } else {
+                    // 如果getTeamTimeParams返回null（自定义时间未选择完整），使用保存的时间参数
+                    timebucket = self.lastTimebucket || 'month';
+                    at_time = self.lastAtTime || '';
+                }
+                
+                // 调用渲染函数，渲染到右列（传入解码后的中文用户名）
+                self.renderMemberDetail(username, timebucket, at_time);
+            });
+        },
+        
+        /**
+         * 渲染个人业绩清单到右列容器
+         * @param {string} username - 业务员名称
+         * @param {string} timebucket - 时间筛选（today/yesterday/week/month/year/custom）
+         * @param {string} at_time - 自定义时间范围（格式：start_date,end_date）
+         */
+        renderMemberDetail: function(username, timebucket, at_time) {
+            var self = this;
+            
+            // 保存当前选择的成员信息和时间参数
+            self.lastMemberName = username;
+            self.lastTimebucket = timebucket || self.lastTimebucket || 'month';
+            self.lastAtTime = at_time || self.lastAtTime || '';
+            
+            // 更新右列标题
+            var timeDisplay = self._formatTimeDisplay(timebucket || self.lastTimebucket, at_time || self.lastAtTime);
+            $('#memberDetailPaneTitle').html('📋 ' + username + ' - 个人业绩清单 <small style="font-size: 12px; opacity: 0.8;">(' + timeDisplay + ')</small>');
+            
+            // 获取右列容器
+            var $memberDetailPane = $('#memberDetailPane');
+            if (!$memberDetailPane.length) {
+                console.error('[TeamSplit] #memberDetailPane 容器不存在');
+                layer.msg('渲染容器不存在', {icon: 2});
+                return;
+            }
+            
+            // 显示加载状态
+            $memberDetailPane.html('<div class="text-center" style="padding: 60px 20px; color: #6c757d;"><i class="bi bi-hourglass-split" style="font-size: 24px; display: block; margin-bottom: 15px;"></i><p>加载中...</p></div>');
+            
+            // 调用接口获取数据
+            $.ajax({
+                url: '{:url("Operator/getMemberPerformanceDetail")}',
+                type: 'POST',
+                data: {
+                    username: username,
+                    timebucket: timebucket || '',
+                    at_time: at_time || ''
+                },
+                dataType: 'json',
+                timeout: 30000,
+                success: function(res) {
+                    if (res.code === 200 && res.data && res.data.length > 0) {
+                        // 渲染表格
+                        self._renderMemberDetailTable($memberDetailPane, res.data, username, timeDisplay);
+                    } else {
+                        $memberDetailPane.html('<div class="text-center" style="padding: 60px 20px; color: #6c757d;"><i class="bi bi-inbox" style="font-size: 48px; display: block; margin-bottom: 15px;"></i><p>暂无数据</p></div>');
+                    }
+                },
+                error: function(xhr, status) {
+                    var errorMsg = status === 'timeout' ? '请求超时，请稍后重试' : '数据加载失败，请稍后重试';
+                    $memberDetailPane.html('<div class="text-center" style="padding: 60px 20px; color: #dc3545;"><i class="bi bi-exclamation-triangle" style="font-size: 48px; display: block; margin-bottom: 15px;"></i><p>' + errorMsg + '</p></div>');
+                }
+            });
+        },
+        
+        /**
+         * 渲染个人业绩清单表格
+         * @private
+         */
+        _renderMemberDetailTable: function($container, data, username, timeDisplay) {
+            var html = '<div style="background: #ffffff; border-radius: 8px; overflow: hidden;">' +
+                '<div style="padding: 15px 20px; border-bottom: 1px solid #e9ecef; background: #f8f9fa;">' +
+                '<span style="margin-right: 20px; color: #495057;">业务员：<strong style="color: #212529;">' + username + '</strong></span>' +
+                '<span style="color: #495057;">时间口径：<strong style="color: #212529;">' + timeDisplay + '</strong></span>' +
+                '</div>' +
+                '<div style="padding: 20px; overflow-x: auto;">' +
+                '<table class="wukong-table" style="width: 100%; border-collapse: collapse;">' +
+                '<thead style="background: #f8f9fa;">' +
+                '<tr>' +
+                '<th style="padding: 12px; text-align: left; font-weight: 600; color: #495057; border-bottom: 2px solid #dee2e6;">成交日期</th>' +
+                '<th style="padding: 12px; text-align: left; font-weight: 600; color: #495057; border-bottom: 2px solid #dee2e6;">客户名称</th>' +
+                '<th style="padding: 12px; text-align: right; font-weight: 600; color: #495057; border-bottom: 2px solid #dee2e6;">订单金额</th>' +
+                '<th style="padding: 12px; text-align: right; font-weight: 600; color: #495057; border-bottom: 2px solid #dee2e6;">利润</th>' +
+                '</tr>' +
+                '</thead>' +
+                '<tbody>';
+            
+            if (data && data.length > 0) {
+                $.each(data, function(index, item) {
+                    html += '<tr style="border-bottom: 1px solid #dee2e6;">' +
+                        '<td style="padding: 12px;">' + (item.order_time || item.deal_date || '') + '</td>' +
+                        '<td style="padding: 12px;">' + (item.client_name || item.customer_name || '') + '</td>' +
+                        '<td style="padding: 12px; text-align: right;">' + (item.money || item.order_amount || '0.00') + '</td>' +
+                        '<td style="padding: 12px; text-align: right; color: #28a745;">' + (item.profit || '0.00') + '</td>' +
+                        '</tr>';
+                });
+            } else {
+                html += '<tr><td colspan="4" style="padding: 40px; text-align: center; color: #6c757d;">暂无数据</td></tr>';
+            }
+            
+            html += '</tbody></table></div></div>';
+            
+            $container.html(html);
+        }
+    };
+    // === split-layout end ===
+
     
     // 渲染业绩表格
     function renderPerformanceTable(data) {
