@@ -715,18 +715,35 @@
                     return;
                 }
 
+                const measurePanelSize = function () {
+                    const originalDisplay = actionPanel.css('display');
+                    const originalVisibility = actionPanel.css('visibility');
+                    let panelWidth;
+                    let panelHeight;
+                    if (originalDisplay === 'none') {
+                        actionPanel.css({ visibility: 'hidden', display: 'block' });
+                        panelWidth = actionPanel.outerWidth();
+                        panelHeight = actionPanel.outerHeight();
+                        actionPanel.css({ visibility: originalVisibility, display: originalDisplay });
+                    } else {
+                        panelWidth = actionPanel.outerWidth();
+                        panelHeight = actionPanel.outerHeight();
+                    }
+                    return { panelWidth, panelHeight };
+                };
+
                 const positionPanel = function ($tr) {
-                    const $main = $tr.closest('.layui-table-main');
-                    const mainOffset = $main.offset();
-                    const trOffset = $tr.offset();
-                    if (!mainOffset || !trOffset) return;
-                    const panelWidth = actionPanel.outerWidth() || 160;
-                    const panelHeight = actionPanel.outerHeight() || 40;
-                    const left = mainOffset.left + $main.outerWidth() - panelWidth - 8;
-                    const top = trOffset.top + ($tr.outerHeight() - panelHeight) / 2;
+                    const mainEl = $tr.closest('.layui-table-main')[0];
+                    const trEl = $tr[0];
+                    if (!mainEl || !trEl) return;
+                    const { panelWidth, panelHeight } = measurePanelSize();
+                    const mainRect = mainEl.getBoundingClientRect();
+                    const trRect = trEl.getBoundingClientRect();
+                    const left = mainRect.left + mainRect.width - panelWidth - 8 + window.scrollX;
+                    const top = trRect.top + trRect.height / 2 - panelHeight / 2 + window.scrollY;
                     actionPanel.css({
                         left,
-                        top: Math.max(mainOffset.top + 4, top)
+                        top
                     });
                 };
 
