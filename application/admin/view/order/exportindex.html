@@ -716,22 +716,53 @@
                 }
 
                 const positionPanel = function ($tr) {
-                    const $main = $tr.closest('.layui-table-main');
-                    const mainOffset = $main.offset();
-                    const trOffset = $tr.offset();
-                    if (!mainOffset || !trOffset) return;
-                    const panelWidth = actionPanel.outerWidth() || 160;
-                    const panelHeight = actionPanel.outerHeight() || 40;
-                    const left = mainOffset.left + $main.outerWidth() - panelWidth - 8;
-                    const top = trOffset.top + ($tr.outerHeight() - panelHeight) / 2;
+                    const mainEl = $tr.closest('.layui-table-main')[0];
+                    const trEl = $tr[0];
+                    if (!mainEl || !trEl) return;
+
+                    const mainRect = mainEl.getBoundingClientRect();
+                    const trRect = trEl.getBoundingClientRect();
+                    let panelWidth;
+                    let panelHeight;
+                    const wasHidden = actionPanel.css('display') === 'none';
+                    let restoreStyles = null;
+
+                    if (wasHidden) {
+                        restoreStyles = {
+                            display: actionPanel[0].style.display,
+                            visibility: actionPanel[0].style.visibility
+                        };
+                        actionPanel.css({ visibility: 'hidden', display: 'block' });
+                    }
+
+                    panelWidth = actionPanel.outerWidth();
+                    panelHeight = actionPanel.outerHeight();
+
+                    if (wasHidden) {
+                        actionPanel.css({
+                            display: restoreStyles.display || 'none',
+                            visibility: restoreStyles.visibility || ''
+                        });
+                    }
+
+                    if (!panelWidth || !panelHeight) return;
+
+                    const left = mainRect.left + window.scrollX + mainRect.width - panelWidth - 8;
+                    const top = trRect.top + window.scrollY + (trRect.height / 2) - (panelHeight / 2);
+
                     actionPanel.css({
                         left,
-                        top: Math.max(mainOffset.top + 4, top)
+                        top
                     });
                 };
 
                 $tableBody.off('scroll.rowAction').on('scroll.rowAction', function () {
-                    actionPanel.hide();
+                    const currentTr = actionPanel.data('currentTr');
+                    if (actionPanel.is(':visible') && currentTr && currentTr.length) {
+                        positionPanel(currentTr);
+                    } else {
+                        actionPanel.hide();
+                    }
                 });
 
                 $tableBody.find('tr').each(function () {
@@ -742,6 +773,7 @@
 
                     const showPanel = function () {
                         actionPanel.data('rowData', rowData);
+                        actionPanel.data('currentTr', $tr);
                         positionPanel($tr);
                         actionPanel.show();
                     };
@@ -756,6 +788,7 @@
 
                 $(document).off('click.rowAction').on('click.rowAction', function () {
                     actionPanel.hide();
+                    actionPanel.removeData('currentTr');
                 });
 
                 actionPanel.off('click.rowActionPanel').on('click.rowActionPanel', function (e) {
