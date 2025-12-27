@@ -127,7 +127,7 @@ class Products extends Common
 
         // 权限判定
         $current_admin = Admin::getMyInfo();
-        $isSuper = (session('aid') == 1) || ($current_admin['username'] === 'admin');
+        $isSuper = (session('aid') == 1) || ($current_admin['username'] === 'admin') || ($current_admin['group_id'] == 13);
 
         if (request()->isPost()) {
             $product_name = Request::param('product_name');
