@@ -262,6 +262,9 @@ class Index extends Common
         // ★ 修改：订单审核通知拆分为【未读】和【已读】
         $currentUsername = Session::get('username');
 
+        // ★ 先执行自动归档/软删除处理（维护未读上限10条、已读上限5条）
+        $this->autoTrimNotifications($currentUsername);
+
         // 未读：最多 10 条
         $unreadNotifications = Db::name('crm_order_notifications')
             ->where('target_user', $currentUsername)
@@ -318,13 +321,14 @@ class Index extends Common
                 return json(['code' => 0, 'msg' => '通知不存在或无权限', 'data' => []]);
             }
 
-            // 2) 如果未读，则更新为已读（写入 read_time）
+            // 2) 如果未读，则更新为已读（写入 read_time），但auto_read必须保持为0（手动已读不算系统归档）
             if ((int)$notice['is_read'] === 0) {
                 Db::name('crm_order_notifications')
                     ->where('id', $id)
                     ->update([
                         'is_read'   => 1,
                         'read_time' => date('Y-m-d H:i:s'),
+                        // 注意：不设置auto_read，保持原值（如果之前为0则保持0，这是手动已读）
                     ]);
             }
 
@@ -351,7 +355,10 @@ class Index extends Common
                 if (!empty($oldest)) {
                     Db::name('crm_order_notifications')
                         ->where('id', 'in', $oldest)
-                        ->update(['is_deleted' => 1]);
+                        ->update([
+                            'is_deleted' => 1,
+                            'deleted_time' => date('Y-m-d H:i:s')
+                        ]);
 
                     $deletedIds = $oldest;
                 }
@@ -415,20 +422,11 @@ class Index extends Common
                 return json(['code' => 0, 'msg' => '无权限或记录不存在']);
             }
 
-            // 2) 软删除：更新 is_deleted = 1
-            $updateData = ['is_deleted' => 1];
-            
-            // 3) 如果表有 delete_time 字段，则写入当前时间
-            // 先尝试获取表结构，检查是否有 delete_time 字段
-            try {
-                $tableInfo = Db::query("SHOW COLUMNS FROM `crm_order_notifications` LIKE 'delete_time'");
-                if (!empty($tableInfo)) {
-                    // 字段存在，写入删除时间
-                    $updateData['delete_time'] = date('Y-m-d H:i:s');
-                }
-            } catch (\Exception $e) {
-                // 如果查询失败，忽略，只更新 is_deleted
-            }
+            // 2) 软删除：更新 is_deleted = 1，并写入 deleted_time
+            $updateData = [
+                'is_deleted' => 1,
+                'deleted_time' => date('Y-m-d H:i:s')
+            ];
 
             // 4) 执行更新
             $result = Db::name('crm_order_notifications')

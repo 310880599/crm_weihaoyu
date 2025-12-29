@@ -1921,6 +1921,9 @@ class Order extends Common
                 'create_time' => date('Y-m-d H:i:s')
             ]);
 
+            // ★ 插入通知后，立即执行自动归档/软删除处理
+            $this->autoTrimNotifications($orderinfo['pr_user']);
+
             $msg = ['code' => 0, 'msg' => '订单通过成功', 'data' => []];
             return json($msg);
         } else {
@@ -1969,6 +1972,9 @@ class Order extends Common
                 'is_read' => 0,
                 'create_time' => date('Y-m-d H:i:s')
             ]);
+
+            // ★ 插入通知后，立即执行自动归档/软删除处理
+            $this->autoTrimNotifications($orderinfo['pr_user']);
         
 
 

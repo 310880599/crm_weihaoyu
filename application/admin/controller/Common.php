@@ -426,5 +426,93 @@ class Common extends Controller
         }
     }
 
+    /**
+     * 自动归档/软删除通知（自动维护未读上限10条、已读上限5条）
+     * @param string $targetUser 目标用户（通知的target_user字段值）
+     * @return bool 是否执行成功
+     */
+    protected function autoTrimNotifications($targetUser)
+    {
+        if (empty($targetUser)) {
+            return false;
+        }
+
+        Db::startTrans();
+        try {
+            // 检测是否使用create_time字段（只查询一次）
+            $tableColumns = Db::query("SHOW COLUMNS FROM `crm_order_notifications` LIKE 'create_time'");
+            $useCreateTime = !empty($tableColumns);
+            $orderField = $useCreateTime ? 'create_time' : 'id';
+
+            // 1. 未读上限 10 条：如果超过 10 条，把最早的多余未读自动标记为已读
+            $unreadCount = Db::name('crm_order_notifications')
+                ->where('target_user', $targetUser)
+                ->where('is_deleted', 0)
+                ->where('is_read', 0)
+                ->count();
+
+            if ($unreadCount > 10) {
+                $needAutoRead = $unreadCount - 10;
+
+                // 查询最早的多余未读通知ID（按create_time升序，如果没有则用id ASC）
+                $oldestUnreadIds = Db::name('crm_order_notifications')
+                    ->where('target_user', $targetUser)
+                    ->where('is_deleted', 0)
+                    ->where('is_read', 0)
+                    ->order($orderField, 'asc')
+                    ->limit($needAutoRead)
+                    ->column('id');
+
+                if (!empty($oldestUnreadIds)) {
+                    // 批量更新：标记为已读，并设置auto_read=1
+                    Db::name('crm_order_notifications')
+                        ->where('id', 'in', $oldestUnreadIds)
+                        ->update([
+                            'is_read' => 1,
+                            'auto_read' => 1,
+                            'read_time' => date('Y-m-d H:i:s'),
+                        ]);
+                }
+            }
+
+            // 2. 已读上限 5 条：如果超过 5 条，把最早的多余已读软删除
+            $readCount = Db::name('crm_order_notifications')
+                ->where('target_user', $targetUser)
+                ->where('is_deleted', 0)
+                ->where('is_read', 1)
+                ->count();
+
+            if ($readCount > 5) {
+                $needSoftDelete = $readCount - 5;
+
+                // 查询最早的多余已读通知ID（按create_time升序，如果没有则用id ASC）
+                $oldestReadIds = Db::name('crm_order_notifications')
+                    ->where('target_user', $targetUser)
+                    ->where('is_deleted', 0)
+                    ->where('is_read', 1)
+                    ->order($orderField, 'asc')
+                    ->limit($needSoftDelete)
+                    ->column('id');
+
+                if (!empty($oldestReadIds)) {
+                    // 批量更新：软删除，并设置deleted_time
+                    Db::name('crm_order_notifications')
+                        ->where('id', 'in', $oldestReadIds)
+                        ->update([
+                            'is_deleted' => 1,
+                            'deleted_time' => date('Y-m-d H:i:s'),
+                        ]);
+                }
+            }
+
+            Db::commit();
+            return true;
+        } catch (\Throwable $e) {
+            Db::rollback();
+            // 静默失败，避免影响主流程
+            return false;
+        }
+    }
+
 
 }
