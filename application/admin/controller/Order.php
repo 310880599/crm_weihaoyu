@@ -203,7 +203,62 @@ class Order extends Common
         return $this->collaboratorClientSearch();
     }
 
+    //（待审核订单）列表
+    public function pendingindex()
+    {
 
+        if (request()->isPost()) {
+            $params = Request::param();
+            if (!isset($params['keyword'])) {
+                $params['keyword'] = [];
+            }
+            $params['keyword']['timebucket'] = 'month';
+            Request::merge($params);
+            return $this->pendingClientSearch();
+            // $key = input('post.key');
+            // $page = input('page') ? input('page') : 1;
+            // $pageSize = input('limit') ? input('limit') : config('pageSize');
+            // $list = db('crm_client_order')
+            //     ->where(['pr_user' => Session::get('username')])
+            //     ->order('create_time desc')
+            //     ->paginate(array('list_rows' => $pageSize, 'page' => $page))
+            //     ->toArray();
+            // return $result = ['code' => 0, 'msg' => '获取成功!', 'data' => $list['data'], 'count' => $list['total'], 'rel' => 1];
+        }
+        $this->assign('customer_type', self::CUSTOMER_TYPE);
+        $this->assign('sourceList', Db::name('crm_client_status')->distinct(true)->column('status_name'));
+        return $this->fetch();
+    }
+    
+    
+    //（审核失败订单）列表
+    public function failedindex()
+    {
+
+        if (request()->isPost()) {
+            $params = Request::param();
+            if (!isset($params['keyword'])) {
+                $params['keyword'] = [];
+            }
+            $params['keyword']['timebucket'] = 'month';
+            Request::merge($params);
+            return $this->failedClientSearch();
+            // $key = input('post.key');
+            // $page = input('page') ? input('page') : 1;
+            // $pageSize = input('limit') ? input('limit') : config('pageSize');
+            // $list = db('crm_client_order')
+            //     ->where(['pr_user' => Session::get('username')])
+            //     ->order('create_time desc')
+            //     ->paginate(array('list_rows' => $pageSize, 'page' => $page))
+            //     ->toArray();
+            // return $result = ['code' => 0, 'msg' => '获取成功!', 'data' => $list['data'], 'count' => $list['total'], 'rel' => 1];
+        }
+        $this->assign('customer_type', self::CUSTOMER_TYPE);
+        $this->assign('sourceList', Db::name('crm_client_status')->distinct(true)->column('status_name'));
+        return $this->fetch();
+    }
+    
+    
 
     // 新建订单第3版
     public function add()
@@ -323,7 +378,8 @@ class Order extends Common
             $data['pr_user_id']       = (int)Session::get('aid');
             $data['oper_user']        = Request::param('oper_user');      // 运营人员
             $data['bank_account']     = Request::param('bank_account');   // 收款账户
-            
+            $data['check_status']     = 1;   // 订单的审核状态，起始值是1，待审核
+
             // 处理运营端口：将端口ID转换为端口名称（文字）保存
             $sourcePortId = Request::param('source_port', '');
             $data['source_port'] = '';  // 默认为空
@@ -1829,6 +1885,206 @@ class Order extends Common
     }
 
 
+    //订单审核通过的处理
+    public function passIndex()
+    {
+        $id = Request::param('id');
+
+        $orderinfo = Db::table('crm_client_order')->where('id', $id)->find();
+        $custphone = $orderinfo['contact'];
+        $custphone = trim(preg_replace('/[+\-\s]/', '', $custphone));
+        $coninfo = Db::name('crm_contacts')->where('is_delete', 0)->where('contact_value', $custphone)->find();
+        if (!$coninfo) {
+            $msg['code'] = -200;
+            $msg['msg'] = "该客户信息没有找到";
+            return json($msg);
+        }
+        $custinfo =  Db::name('crm_leads')->where('id', $coninfo['leads_id'])->find();
+
+        $updatearr = [];
+        $updatearr['issuccess'] = 1;
+
+        $result = Db::table('crm_client_order')->where('id', $id)->update(['check_status' => 2]);
+
+        if ($result) {
+            Db::table('crm_leads')->where('id', $custinfo['id'])->update($updatearr);
+
+            // ★ 新增：插入审核通过通知
+            Db::name('crm_order_notifications')->insert([
+                'order_id' => $id,
+                'order_no' => $orderinfo['order_no'], 
+                'contact' => $orderinfo['contact'],
+                'type' => 1, // 1=审核通过
+                'message' => '订单编号为' . $orderinfo['order_no'] . '的订单已经通过审核',
+                'target_user' => $orderinfo['pr_user'], // 订单负责人
+                'is_read' => 0,
+                'create_time' => date('Y-m-d H:i:s')
+            ]);
+
+            $msg = ['code' => 0, 'msg' => '订单通过成功', 'data' => []];
+            return json($msg);
+        } else {
+            $msg = ['code' => -200, 'msg' => '订单通过失败', 'data' => []];
+            return json($msg);
+        }
+    }
+
+    //订单审核拒绝的处理
+    public function rejectIndex()
+    {
+        $id = input('post.id/d', 0);
+        $reason = input('post.audit_remark/s', '');
+
+        if (!$id || $reason === '') {
+            return json(['code' => 0, 'msg' => '参数错误']);
+        }
+
+        $adminId = session('aid');
+
+        // 先查询订单信息，获取联系方式
+        $orderinfo = Db::name('crm_client_order')->where('id', $id)->find();
+        if (!$orderinfo) {
+            return json(['code' => 0, 'msg' => '订单不存在']);
+        }
+
+        $res = Db::name('crm_client_order')
+            ->where('id', $id)
+            ->update([
+                'check_status'  => 3,
+                'audit_user_id' => $adminId,
+                'audit_time'    => date('Y-m-d H:i:s'),
+                'audit_remark'  => $reason,
+            ]);
+
+        if ($res !== false) {
+
+            // ★ 新增：插入审核拒绝通知
+            Db::name('crm_order_notifications')->insert([
+                'order_id' => $id,
+                'order_no' => $orderinfo['order_no'], 
+                'contact' => $orderinfo['contact'],
+                'type' => 2, // 2=审核拒绝
+                'message' => '订单编号为' . $orderinfo['order_no'] . '的订单审核被拒绝',
+                'target_user' => $orderinfo['pr_user'], // 订单负责人
+                'is_read' => 0,
+                'create_time' => date('Y-m-d H:i:s')
+            ]);
+        
+
+
+            return json(['code' => 1, 'msg' => '已拒绝该订单']);
+        } else {
+            return json(['code' => 0, 'msg' => '操作失败，请重试']);
+        }
+       
+    }
+
+    
+    /**
+     * ★★★ 新增：审核失败订单重新提交到“待审核” ★★★
+     */
+    public function resubmitIndex()
+    {
+        if (!request()->isPost()) {
+            return json(['code' => 0, 'msg' => '非法请求']);
+        }
+
+        $id = input('post.id/d', 0);
+        if (!$id) {
+            return json(['code' => 0, 'msg' => '参数错误']);
+        }
+
+        // 权限校验：目前简单限制为超级管理员，后续你可以扩展为财务等
+        $adminId = (int)session('aid');
+        $groupId = (int)session('gid');   // 若你在登录时有写入 gid，可用它区分财务
+
+        if ($adminId !== 1 && $groupId !== 15) {
+            return json(['code' => 0, 'msg' => '您没有重新提交的权限']);
+        }
+
+        // 先确认这条订单确实是“审核失败”状态
+        $order = Db::name('crm_client_order')
+            ->where('id', $id)
+            ->field('id,check_status')
+            ->find();
+
+        if (!$order) {
+            return json(['code' => 0, 'msg' => '订单不存在或已删除']);
+        }
+
+        if ((int)$order['check_status'] !== 3) {
+            return json(['code' => 0, 'msg' => '只有审核失败的订单才能重新提交']);
+        }
+
+        // 更新为待审核状态
+        $updateData = [
+            'check_status'  => 1,                 // 待审核
+            'status'        => '待审核',          // 文本字段，兼容历史逻辑
+            // 重新提交时，可以清空审核人和审核时间，让下一次审核更干净
+            'audit_user_id' => null,
+            'audit_time'    => null,
+            // 是否清空上一次的审核意见，看你业务需求：
+            // 想保留历史就不要清空；想让下一次审核写新的理由就清空
+            'audit_remark'  => null,
+        ];
+
+        $res = Db::name('crm_client_order')
+            ->where('id', $id)
+            ->update($updateData);
+
+        if ($res !== false) {
+            return json(['code' => 1, 'msg' => '重新提交成功，该订单已回到待审核列表']);
+        } else {
+            return json(['code' => 0, 'msg' => '重新提交失败，请重试']);
+        }
+    }
+
+    /**
+     * 【新增】获取审核失败信息（给“原因”按钮用）
+     */
+    public function auditInfo()
+    {
+        if (!request()->isAjax()) {
+            return json(['code' => 0, 'msg' => '非法请求']);
+        }
+
+        $id = input('id/d', 0);
+        if (!$id) {
+            return json(['code' => 0, 'msg' => '参数错误']);
+        }
+
+        // 关联 admin 表，取审核人名字
+        $info = Db::name('crm_client_order')
+            ->alias('o')
+            ->leftJoin('admin a', 'a.admin_id = o.audit_user_id')
+            ->field('o.check_status,o.audit_remark,o.audit_time,a.username as audit_user_name')
+            ->where('o.id', $id)
+            ->find();
+
+        if (!$info) {
+            return json(['code' => 0, 'msg' => '订单不存在或已删除']);
+        }
+
+        // 状态文字
+        $statusMap = [
+            1 => '待审核',
+            2 => '审核通过',
+            3 => '审核失败',
+        ];
+        $info['check_status_text'] = isset($statusMap[$info['check_status']])
+            ? $statusMap[$info['check_status']]
+            : '未知状态';
+
+        return json([
+            'code' => 1,
+            'msg'  => '获取成功',
+            'data' => $info,
+        ]);
+    }
+
+
+    
+
     public function shenhe()
     {
         $id = Request::param('id');
@@ -1889,7 +2145,7 @@ class Order extends Common
             }
         }
         
-        // if (isset($keyword['status'])) $where[] = ['status', '=', $keyword['status']];
+        $where[] = ['check_status', '=', 2];
         if (isset($keyword['order_no'])) $where[] = ['order_no', 'like', "%{$keyword['order_no']}%"];
         
         // 处理成交时间查询（order_timebucket 或 order_time）
@@ -2256,7 +2512,7 @@ class Order extends Common
         // 过滤掉 null 元素
         if ($keyword) $keyword = array_filter($keyword);
 
-        // if (isset($keyword['status'])) $where[] = ['status', '=', $keyword['status']];
+        $where[] = ['check_status', '=', 2];
         if (isset($keyword['order_no'])) $where[] = ['order_no', 'like', "%{$keyword['order_no']}%"];
         if (isset($keyword['timebucket'])) {
             $where[] = $this->buildTimeWhere($keyword['timebucket'], 'order_time');
@@ -2447,6 +2703,7 @@ class Order extends Common
         if ($keyword) $keyword = array_filter($keyword);
 
         // 筛选条件复用现有的 keyword 过滤逻辑
+        $where[] = ['check_status', '=', 2];
         if (isset($keyword['order_no'])) $where[] = ['order_no', 'like', "%{$keyword['order_no']}%"];
         if (isset($keyword['timebucket'])) {
             // 方案A：timebucket 仅保留订单表字段 order_time 的筛选
@@ -2602,6 +2859,265 @@ class Order extends Common
             'totalProfit' => number_format($totalProfit, 2),
         ];
     }
+
+    public function pendingClientSearch()
+    {
+        $where = [];
+        $client_where = [];
+        $pr_user = Session::get('username') ?? '';
+        
+        // 确保只显示当前用户的订单：自己创建的或自己是负责人的
+        // if (!empty($pr_user)) {
+        //     $where[] = function($query) use ($pr_user) {
+        //         $query->where('at_user', '=', $pr_user)
+        //               ->whereOr('pr_user', '=', $pr_user);
+        //     };
+        // } else {
+        //     // 如果没有用户名，返回空结果
+        //     $where[] = ['id', '=', 0];
+        // }
+        if (empty($pr_user)) { $where[] = ['id', '=', 0]; }
+        
+        $client_where[] = ['pr_user', '=', $pr_user];
+        //判断权限
+        // $team_name = session('team_name') ?? '';
+        // if ($team_name) {
+        //     $where[] = ['team_name', '=', $team_name];
+        //     $usernames = Db::table('admin')->where('team_name', $team_name)->column('username');
+        //     $client_where[] = ['pr_user', 'in', $usernames];
+        // }
+        $page = input('page') ?? 1;
+        $limit = input('limit') ?? config('pageSize');
+        $keyword = Request::param('keyword');
+        // 过滤掉 null 元素
+        if ($keyword) $keyword = array_filter($keyword);
+
+        $where[] = ['check_status', '=', 1];
+        if (isset($keyword['order_no'])) $where[] = ['order_no', 'like', "%{$keyword['order_no']}%"];
+        if (isset($keyword['timebucket'])) {
+            $where[] = $this->buildTimeWhere($keyword['timebucket'], 'order_time');
+
+            $timeWhere['at_time'] = $this->buildTimeWhere($keyword['timebucket'], 'at_time');
+            $timeWhere['to_kh_time'] = $this->buildTimeWhere($keyword['timebucket'], 'to_kh_time');
+            $client_where[] =  function ($query) use ($timeWhere) {
+                $query->where(...$timeWhere['at_time']);
+                $query->whereOr(...$timeWhere['to_kh_time']);
+            };
+        }
+        if (isset($keyword['min_money'])) $where[] = ['money', '>', $keyword['min_money']];
+        if (isset($keyword['max_money'])) $where[] = ['money', '<', $keyword['max_money']];
+        if (isset($keyword['min_profit'])) $where[] = ['profit', '>', $keyword['min_profit']];
+        if (isset($keyword['max_profit'])) $where[] = ['profit', '<', $keyword['max_profit']];
+        if (isset($keyword['min_margin_rate'])) $where[] = ['margin_rate', '>', $keyword['min_margin_rate']];
+        if (isset($keyword['max_margin_rate'])) $where[] = ['margin_rate', '<', $keyword['max_margin_rate']];
+        if (isset($keyword['cname'])) {
+            $where[] = ['cname', 'like', "%{$keyword['cname']}%"];
+            // $client_where[] = ['kh_name', 'like', "%{$keyword['cname']}%"];
+        }
+        if (isset($keyword['contact'])) {
+            $where[] = ['contact', 'like', "%{$keyword['contact']}%"];
+        }
+        if (isset($keyword['customer_type'])) {
+            $where[] = ['customer_type', '=', $keyword['customer_type']];
+        }
+        if (isset($keyword['product_name'])) {
+            $where[] = ['product_name', 'like', "%{$keyword['product_name']}%"];
+        }
+        if (isset($keyword['source'])) {
+            $where[] = ['source', '=', $keyword['source']];
+            //兼容历史数据
+            $kh_source = strtolower($keyword['source']);
+            $client_where[] = ['kh_status', 'like', "%$kh_source%"];
+        }
+        $list = Db::table('crm_client_order')
+            ->where($where)
+            ->order('order_time desc')
+            ->paginate([
+                'list_rows' => $limit,
+                'page' => $page
+            ])
+            ->toArray();
+        
+        // 如果订单主表的 product_name 为空，尝试从订单明细表中获取产品名称
+        // 这样可以确保即使产品被删除，订单的产品名称仍然可以显示
+        foreach ($list['data'] as &$order) {
+            if (empty($order['product_name'])) {
+                $firstItem = Db::name('crm_order_item')
+                    ->where('order_id', $order['id'])
+                    ->where('product_name', '<>', '')
+                    ->order('line_no asc')
+                    ->field('product_name')
+                    ->find();
+                if ($firstItem && !empty($firstItem['product_name'])) {
+                    $order['product_name'] = $firstItem['product_name'];
+                }
+            }
+            
+            // 转换收款账户ID为账户名称
+            if (!empty($order['bank_account'])) {
+                $accountInfo = Db::name('crm_receive_account')
+                    ->where('id', $order['bank_account'])
+                    ->field('account')
+                    ->find();
+                if ($accountInfo) {
+                    $order['bank_account_name'] = $accountInfo['account'];
+                }
+            }
+        }
+        unset($order);
+
+
+        //成单率
+
+        $totalInquiries = Db::table('crm_leads')->where('status', 1)->where($client_where)->count();
+
+        $successOrders = $list['total'];
+        $successRate = $totalInquiries > 0 ? ($successOrders / $totalInquiries * 100) : 0;
+        $totalMoney = $this->getSum($where, 'money');
+        $totalProfit = $this->getSum($where, 'profit');
+        return $result = [
+            'code' => 0,
+            'msg' => '获取成功!',
+            'data' => $list['data'],
+            'count' => $list['total'],
+            'rel' => 1,
+            'totalInquiries' => $totalInquiries,
+            'successRate' => number_format($successRate, 2),
+            'totalMoney' => number_format($totalMoney, 2),
+            'totalProfit' => number_format($totalProfit, 2),
+        ];
+    }
+
+
+    public function failedClientSearch()
+    {
+        $where = [];
+        $client_where = [];
+        $pr_user = Session::get('username') ?? '';
+        
+        // 确保只显示当前用户的订单：自己创建的或自己是负责人的
+        // if (!empty($pr_user)) {
+        //     $where[] = function($query) use ($pr_user) {
+        //         $query->where('at_user', '=', $pr_user)
+        //               ->whereOr('pr_user', '=', $pr_user);
+        //     };
+        // } else {
+        //     // 如果没有用户名，返回空结果
+        //     $where[] = ['id', '=', 0];
+        // }
+        if (empty($pr_user)) { $where[] = ['id', '=', 0]; }
+        
+        $client_where[] = ['pr_user', '=', $pr_user];
+        //判断权限
+        // $team_name = session('team_name') ?? '';
+        // if ($team_name) {
+        //     $where[] = ['team_name', '=', $team_name];
+        //     $usernames = Db::table('admin')->where('team_name', $team_name)->column('username');
+        //     $client_where[] = ['pr_user', 'in', $usernames];
+        // }
+        $page = input('page') ?? 1;
+        $limit = input('limit') ?? config('pageSize');
+        $keyword = Request::param('keyword');
+        // 过滤掉 null 元素
+        if ($keyword) $keyword = array_filter($keyword);
+
+        $where[] = ['check_status', '=', 3];
+        if (isset($keyword['order_no'])) $where[] = ['order_no', 'like', "%{$keyword['order_no']}%"];
+        if (isset($keyword['timebucket'])) {
+            $where[] = $this->buildTimeWhere($keyword['timebucket'], 'order_time');
+
+            $timeWhere['at_time'] = $this->buildTimeWhere($keyword['timebucket'], 'at_time');
+            $timeWhere['to_kh_time'] = $this->buildTimeWhere($keyword['timebucket'], 'to_kh_time');
+            $client_where[] =  function ($query) use ($timeWhere) {
+                $query->where(...$timeWhere['at_time']);
+                $query->whereOr(...$timeWhere['to_kh_time']);
+            };
+        }
+        if (isset($keyword['min_money'])) $where[] = ['money', '>', $keyword['min_money']];
+        if (isset($keyword['max_money'])) $where[] = ['money', '<', $keyword['max_money']];
+        if (isset($keyword['min_profit'])) $where[] = ['profit', '>', $keyword['min_profit']];
+        if (isset($keyword['max_profit'])) $where[] = ['profit', '<', $keyword['max_profit']];
+        if (isset($keyword['min_margin_rate'])) $where[] = ['margin_rate', '>', $keyword['min_margin_rate']];
+        if (isset($keyword['max_margin_rate'])) $where[] = ['margin_rate', '<', $keyword['max_margin_rate']];
+        if (isset($keyword['cname'])) {
+            $where[] = ['cname', 'like', "%{$keyword['cname']}%"];
+            // $client_where[] = ['kh_name', 'like', "%{$keyword['cname']}%"];
+        }
+        if (isset($keyword['contact'])) {
+            $where[] = ['contact', 'like', "%{$keyword['contact']}%"];
+        }
+        if (isset($keyword['customer_type'])) {
+            $where[] = ['customer_type', '=', $keyword['customer_type']];
+        }
+        if (isset($keyword['product_name'])) {
+            $where[] = ['product_name', 'like', "%{$keyword['product_name']}%"];
+        }
+        if (isset($keyword['source'])) {
+            $where[] = ['source', '=', $keyword['source']];
+            //兼容历史数据
+            $kh_source = strtolower($keyword['source']);
+            $client_where[] = ['kh_status', 'like', "%$kh_source%"];
+        }
+        $list = Db::table('crm_client_order')
+            ->where($where)
+            ->order('order_time desc')
+            ->paginate([
+                'list_rows' => $limit,
+                'page' => $page
+            ])
+            ->toArray();
+        
+        // 如果订单主表的 product_name 为空，尝试从订单明细表中获取产品名称
+        // 这样可以确保即使产品被删除，订单的产品名称仍然可以显示
+        foreach ($list['data'] as &$order) {
+            if (empty($order['product_name'])) {
+                $firstItem = Db::name('crm_order_item')
+                    ->where('order_id', $order['id'])
+                    ->where('product_name', '<>', '')
+                    ->order('line_no asc')
+                    ->field('product_name')
+                    ->find();
+                if ($firstItem && !empty($firstItem['product_name'])) {
+                    $order['product_name'] = $firstItem['product_name'];
+                }
+            }
+            
+            // 转换收款账户ID为账户名称
+            if (!empty($order['bank_account'])) {
+                $accountInfo = Db::name('crm_receive_account')
+                    ->where('id', $order['bank_account'])
+                    ->field('account')
+                    ->find();
+                if ($accountInfo) {
+                    $order['bank_account_name'] = $accountInfo['account'];
+                }
+            }
+        }
+        unset($order);
+
+
+        //成单率
+
+        $totalInquiries = Db::table('crm_leads')->where('status', 1)->where($client_where)->count();
+
+        $successOrders = $list['total'];
+        $successRate = $totalInquiries > 0 ? ($successOrders / $totalInquiries * 100) : 0;
+        $totalMoney = $this->getSum($where, 'money');
+        $totalProfit = $this->getSum($where, 'profit');
+        return $result = [
+            'code' => 0,
+            'msg' => '获取成功!',
+            'data' => $list['data'],
+            'count' => $list['total'],
+            'rel' => 1,
+            'totalInquiries' => $totalInquiries,
+            'successRate' => number_format($successRate, 2),
+            'totalMoney' => number_format($totalMoney, 2),
+            'totalProfit' => number_format($totalProfit, 2),
+        ];
+    }
+
+
 
     // 获取订单明细数据（用于导出）
     public function getOrderItems()

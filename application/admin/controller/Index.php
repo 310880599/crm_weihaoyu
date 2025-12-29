@@ -256,8 +256,123 @@ class Index extends Common
             'max_upload_size' => ini_get('upload_max_filesize')
         ];
         $this->assign('config', $config);
+
+
+
+        // ★ 修改：订单审核通知拆分为【未读】和【已读】
+        $currentUsername = Session::get('username');
+
+        // 未读：最多 10 条
+        $unreadNotifications = Db::name('crm_order_notifications')
+            ->where('target_user', $currentUsername)
+            ->where('is_deleted', 0)
+            ->where('is_read', 0)
+            ->order('create_time desc')
+            ->limit(10)
+            ->select();
+
+        // 已读：最多 5 条
+        $readNotifications = Db::name('crm_order_notifications')
+            ->where('target_user', $currentUsername)
+            ->where('is_deleted', 0)
+            ->where('is_read', 1)
+            ->order('create_time desc')
+            ->limit(5)
+            ->select();
+
+        $this->assign('unreadNotifications', $unreadNotifications);
+        $this->assign('readNotifications', $readNotifications);
+
+        
         return $this->fetch();
     }
+
+    // ========================= 【新增】标记通知为已读 + 已读区超5条自动软删除最早的 =========================
+    public function markNotificationRead()
+    {
+        if (!request()->isPost()) {
+            return json(['success' => false, 'msg' => '非法请求']);
+        }
+
+        $id = (int)Request::param('id', 0);
+        $currentUsername = Session::get('username');
+
+        if ($id <= 0 || empty($currentUsername)) {
+            return json(['success' => false, 'msg' => '参数错误']);
+        }
+
+        Db::startTrans();
+        try {
+            // 1) 查这条通知（必须是当前用户的、未删除）
+            $notice = Db::name('crm_order_notifications')
+                ->where('id', $id)
+                ->where('target_user', $currentUsername)
+                ->where('is_deleted', 0)
+                ->find();
+
+            if (!$notice) {
+                Db::rollback();
+                return json(['success' => false, 'msg' => '通知不存在或无权限']);
+            }
+
+            // 2) 如果未读，则更新为已读（写入 read_time）
+            if ((int)$notice['is_read'] === 0) {
+                Db::name('crm_order_notifications')
+                    ->where('id', $id)
+                    ->update([
+                        'is_read'   => 1,
+                        'read_time' => date('Y-m-d H:i:s'),
+                    ]);
+            }
+
+            // 3) 已读区最多保留 5 条：超过则软删除最早的已读消息
+            $readCount = Db::name('crm_order_notifications')
+                ->where('target_user', $currentUsername)
+                ->where('is_deleted', 0)
+                ->where('is_read', 1)
+                ->count();
+
+            $deletedIds = [];
+            if ($readCount > 5) {
+                $needDel = $readCount - 5;
+
+                // 取“最早”的已读消息（按 create_time 正序）
+                $oldest = Db::name('crm_order_notifications')
+                    ->where('target_user', $currentUsername)
+                    ->where('is_deleted', 0)
+                    ->where('is_read', 1)
+                    ->order('create_time asc')
+                    ->limit($needDel)
+                    ->column('id');
+
+                if (!empty($oldest)) {
+                    Db::name('crm_order_notifications')
+                        ->where('id', 'in', $oldest)
+                        ->update(['is_deleted' => 1]);
+
+                    $deletedIds = $oldest;
+                }
+            }
+
+            // 4) 返回给前端：用于“挤到已读区”的展示数据
+            // 说明：create_time 你表里是 datetime 的话，这里直接格式化；如果是时间戳请改一下
+            $payload = [
+                'id'          => $id,
+                'message'     => $notice['message'],
+                'type'        => (int)$notice['type'],
+                'create_time' => $notice['create_time'],
+                'time_text'   => date('m-d H:i', strtotime($notice['create_time'])),
+                'deleted_ids' => $deletedIds,
+            ];
+
+            Db::commit();
+            return json(['success' => true, 'data' => $payload]);
+        } catch (\Throwable $e) {
+            Db::rollback();
+            return json(['success' => false, 'msg' => '操作失败：' . $e->getMessage()]);
+        }
+    }
+    
 
     public function navbar()
     {

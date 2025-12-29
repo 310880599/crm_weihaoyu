@@ -11,6 +11,33 @@
   border-radius: 0;
 }
 </style>
+<!-- ★ 改造：订单审核通知（未读 / 已读 分区显示） -->
+<style>
+    .notice-box {
+      border: 1px solid #eee;
+      border-radius: 6px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .notice-unread {
+      background: #fff7e6; /* 未读：偏暖色 */
+    }
+    .notice-read {
+      background: #f5f5f5; /* 已读：灰色 */
+    }
+    .notice-title {
+      font-weight: bold;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .notice-list {
+      max-height: 260px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+</style>
 <link rel="stylesheet" type="text/css" href="/static/admin/css/admin.css" />
 
 <div class="admin-main layui-anim layui-anim-upbit">
@@ -223,10 +250,70 @@
                 </div>
                 <div class="layui-card-body layui-text layadmin-text">
 
-                    <!-- <p>{:config('sys_name')}</p>
+                    <!-- 上面：未读通知（最多10条） -->
+                    <div class="notice-box notice-unread">
+                        <div class="notice-title">
+                        <span>未读通知（最多10条）</span>
+                        </div>
+                    
+                        <div class="notice-list">
+                        {volist name='unreadNotifications' id='notice'}
+                        <p class="notice-item notice-item-unread"
+                            data-id="{$notice.id}"
+                            data-type="{$notice.type}"
+                            data-time="{$notice.create_time|date='m-d H:i'}"
+                            data-msg="{$notice.message}"
+                            style="margin: 5px 0; padding: 6px; border-left: 3px solid {if condition='$notice.type == 1'}green{else}red{/if}; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                        
+                            <span style="flex:1; min-width:0;">
+                                <span style="color: {if condition='$notice.type == 1'}#5FB878{else}#FF5722{/if};">
+                                    {$notice.message}
+                                </span>
+                                <span style="color: #999; font-size: 12px; margin-left: 10px;">
+                                    ({$notice.create_time|date='m-d H:i'})
+                                </span>
+                            </span>
+                        
+                            <!-- ✅【新增】已读按钮 -->
+                            <button type="button"
+                                    class="layui-btn layui-btn-xs layui-btn-primary notice-mark-read-btn"
+                                    data-id="{$notice.id}">
+                                已读
+                            </button>
+                        </p>
+                        {/volist}
+                            
+                    
+                        {if condition='empty($unreadNotifications)'}
+                        <p style="color: #999; font-size: 12px;">暂无未读通知</p>
+                        {/if}
+                        </div>
+                    </div>
+  
+                    <!-- 下面：已读通知（最多5条） -->
+                    <div class="notice-box notice-read">
+                        <div class="notice-title">
+                        <span>已读通知（最多5条）</span>
+                        </div>
+                    
+                        <div class="notice-list" style="max-height: 160px;">
+                        {volist name='readNotifications' id='notice'}
+                        <p style="margin: 5px 0; padding: 6px; border-left: 3px solid #ccc;">
+                            <span style="color: #666;">
+                            {$notice.message}
+                            </span>
+                            <span style="color: #999; font-size: 12px; margin-left: 10px;">
+                            ({$notice.create_time|date='m-d H:i'})
+                            </span>
+                        </p>
+                        {/volist}    
+                    
+                        {if condition='empty($readNotifications)'}
+                        <p style="color: #999; font-size: 12px;">暂无已读通知</p>
+                        {/if}
+                        </div>
+                    </div>
 
-                    <p>—— {:config('sys_name')}（<a href="/" target="_blank">crm6.nnuiclass.com</a>）</p>
-                 -->
                 </div>
             </div>
         </div>
@@ -271,9 +358,82 @@
 </div>
 {include file="common/foot"/}
 <script>
-    layui.use('table', function () {
+    layui.use(['table','jquery','layer'], function () {
         var table = layui.table;
-    })
+        var $ = layui.jquery;
+        var layer = layui.layer;
+    
+        // ✅【新增】点击“已读”
+        $(document).on('click', '.notice-mark-read-btn', function () {
+            var id = $(this).data('id');
+            var $item = $(this).closest('.notice-item');
+    
+            // 防止重复点
+            if ($(this).data('loading')) return;
+            $(this).data('loading', 1).text('处理中...');
+    
+            $.ajax({
+                url: "{:url('Index/markNotificationRead')}",
+                type: "POST",
+                dataType: "json",
+                data: { id: id },
+                success: function (res) {
+                    if (!res || res.code != 1) {
+                        layer.msg((res && res.msg) ? res.msg : '标记已读失败');
+                        $item.find('.notice-mark-read-btn').data('loading', 0).text('已读');
+                        return;
+                    }
+    
+                    // ✅ 前端移动：从未读挪到已读
+                    var msg = $item.attr('data-msg') || '';
+                    var time = $item.attr('data-time') || '';
+                    var readHtml =
+                        '<p class="notice-item notice-item-read" data-id="'+id+'" ' +
+                        'style="margin: 5px 0; padding: 6px; border-left: 3px solid #ccc;">' +
+                        '  <span style="color: #666;">'+ escapeHtml(msg) +'</span>' +
+                        '  <span style="color: #999; font-size: 12px; margin-left: 10px;">(' + escapeHtml(time) + ')</span>' +
+                        '</p>';
+    
+                    // 已读列表容器（你的已读区域 .notice-read 里第一个 .notice-list）
+                    var $readList = $('.notice-read .notice-list').first();
+    
+                    // 如果“暂无已读通知”存在，先删掉
+                    $readList.find('p:contains("暂无已读通知")').remove();
+    
+                    // 插入到已读最顶部
+                    $readList.prepend(readHtml);
+    
+                    // 删除未读项本身
+                    $item.remove();
+    
+                    // ✅ 如果已读超过 5 条：前端也删掉最旧的（最后一条）
+                    var $reads = $readList.find('p.notice-item-read');
+                    if ($reads.length > 5) {
+                        $reads.last().remove();
+                    }
+    
+                    layer.msg('已标记为已读');
+                },
+                error: function () {
+                    layer.msg('网络异常，标记失败');
+                    $item.find('.notice-mark-read-btn').data('loading', 0).text('已读');
+                }
+            });
+        });
+    
+        // ✅【新增】HTML 转义，避免消息里有特殊字符导致 DOM 错乱
+        function escapeHtml(str){
+            if (str === null || str === undefined) return '';
+            return String(str)
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#039;');
+        }
+    });
+    
+    // 原来的函数保留
     function searchConflict() {
         var keyword = $('input[name="keyword"]').val();
         if (!keyword) {
@@ -281,9 +441,10 @@
             return false;
         }
         window.location.href = "{:url('Client/conflict')}?keyword=" + encodeURIComponent(keyword);
-        return false; // 阻止表单默认提交
+        return false;
     }
 </script>
+    
 </body>
 
 </html>
