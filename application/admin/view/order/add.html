@@ -721,13 +721,13 @@
                 <label class="layui-form-label"><span style="color:red;">*</span>客户微信回执图</label>
                 <div class="layui-input-4">
                     <div class="layui-upload">
-                        <button type="button" class="layui-btn" id="upload_wechat_receipt">
+                        <button type="button" class="layui-btn" id="btnWechatReceipt">
                             <i class="layui-icon">&#xe67c;</i>上传图片
                         </button>
                         <div class="layui-upload-list">
-                            <img class="layui-upload-img js-img-preview" id="wechat_receipt_preview" style="max-width: 200px; max-height: 200px; display: none; cursor: zoom-in;">
+                            <div id="wechatReceiptPreview" style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px;"></div>
                             <p id="wechat_receipt_text"></p>
-                            <input type="hidden" name="wechat_receipt_image" id="wechat_receipt_image" value="" lay-verify="required">
+                            <input type="hidden" name="wechat_receipt_image" id="wechat_receipt_image" value="[]" lay-verify="required">
                         </div>
                     </div>
                 </div>
@@ -766,6 +766,10 @@
     {include file="common/foot"/}
 
     <script>
+        // 微信沟通凭证图片上传配置
+        const WECHAT_IMG_MIN = 1;
+        const WECHAT_IMG_MAX = 10;
+        
         layui.use(['form', 'layer', 'laydate', 'upload'], function () {
             var form = layui.form,
                 layer = layui.layer,
@@ -1393,61 +1397,132 @@
                 xhr.send(formData);
             }
 
-            // 客户微信回执图上传 - 使用隐藏的input
-            var wechatReceiptInput = $('<input type="file" accept="image/*" style="display:none;" id="wechat_receipt_input">');
+            // 微信沟通凭证多图上传相关函数
+            // 获取图片列表
+            function getWechatList() {
+                var val = $('#wechat_receipt_image').val() || '[]';
+                try {
+                    var list = JSON.parse(val);
+                    return Array.isArray(list) ? list : [];
+                } catch(e) {
+                    return [];
+                }
+            }
+            
+            // 设置图片列表
+            function setWechatList(list) {
+                if (!Array.isArray(list)) {
+                    list = [];
+                }
+                $('#wechat_receipt_image').val(JSON.stringify(list));
+            }
+            
+            // 渲染预览
+            function renderWechatPreview() {
+                var list = getWechatList();
+                var $preview = $('#wechatReceiptPreview');
+                $preview.empty();
+                
+                if (list.length === 0) {
+                    $preview.hide();
+                    return;
+                }
+                
+                $preview.show();
+                list.forEach(function(url, index) {
+                    var $item = $('<div style="position: relative; width: 120px; height: 120px; margin-bottom: 10px;">' +
+                        '<img src="' + url + '" class="js-img-preview" style="width: 100%; height: 100%; object-fit: cover; border: 1px solid #ddd; border-radius: 4px; cursor: zoom-in;">' +
+                        '<button type="button" class="wechat-img-delete" data-index="' + index + '" style="position: absolute; top: -8px; right: -8px; width: 24px; height: 24px; border-radius: 50%; background: #FF5722; color: #fff; border: none; cursor: pointer; font-size: 14px; line-height: 24px; text-align: center;">×</button>' +
+                        '</div>');
+                    $preview.append($item);
+                });
+            }
+            
+            // 删除图片
+            $(document).on('click', '.wechat-img-delete', function() {
+                var index = parseInt($(this).data('index'));
+                var list = getWechatList();
+                if (index >= 0 && index < list.length) {
+                    list.splice(index, 1);
+                    setWechatList(list);
+                    renderWechatPreview();
+                }
+            });
+            
+            // 客户微信回执图上传 - 多图上传
+            var wechatReceiptInput = $('<input type="file" accept="image/*" multiple style="display:none;" id="wechat_receipt_input">');
             $('body').append(wechatReceiptInput);
             
-            $('#upload_wechat_receipt').on('click', function() {
+            $('#btnWechatReceipt').on('click', function() {
+                var list = getWechatList();
+                if (list.length >= WECHAT_IMG_MAX) {
+                    layer.msg('最多只能上传' + WECHAT_IMG_MAX + '张图片', {icon: 2});
+                    return;
+                }
                 wechatReceiptInput.click();
             });
             
             wechatReceiptInput.on('change', function(e) {
-                var file = e.target.files[0];
-                if (!file) return;
+                var files = e.target.files;
+                if (!files || files.length === 0) return;
                 
-                // 检查文件大小（压缩前限制10MB）
-                if(file.size > 10 * 1024 * 1024){
-                    layer.msg('图片大小不能超过10MB，请选择较小的图片', {icon: 2});
+                var list = getWechatList();
+                var remaining = WECHAT_IMG_MAX - list.length;
+                if (remaining <= 0) {
+                    layer.msg('最多只能上传' + WECHAT_IMG_MAX + '张图片', {icon: 2});
+                    wechatReceiptInput.val('');
                     return;
                 }
                 
-                // 预览原图
-                var reader = new FileReader();
-                reader.onload = function(e) {
-                    $('#wechat_receipt_preview').attr('src', e.target.result).show();
-                };
-                reader.readAsDataURL(file);
+                // 限制本次选择的文件数量
+                var filesToUpload = Array.from(files).slice(0, remaining);
                 
-                // 压缩图片
-                $('#wechat_receipt_text').html('<span style="color: #1E9FFF;">正在压缩图片...</span>');
-                compressImage(file, 1920, 1920, 0.8, function(compressedBlob){
-                    // 显示压缩后的大小
-                    var originalSize = (file.size / 1024 / 1024).toFixed(2);
-                    var compressedSize = (compressedBlob.size / 1024 / 1024).toFixed(2);
-                    $('#wechat_receipt_text').html('<span style="color: #1E9FFF;">压缩完成（' + originalSize + 'MB → ' + compressedSize + 'MB），开始上传...</span>');
+                filesToUpload.forEach(function(file, fileIndex) {
+                    // 检查文件大小（压缩前限制10MB）
+                    if(file.size > 10 * 1024 * 1024){
+                        layer.msg('图片大小不能超过10MB，请选择较小的图片', {icon: 2});
+                        return;
+                    }
                     
-                    // 上传压缩后的图片
-                    uploadCompressedImage(
-                        compressedBlob,
-                        file.name.replace(/\.[^/.]+$/, '.jpg'),
-                        '{:url("UpFiles/upload")}',
-                        function(percent) {
-                            $('#wechat_receipt_text').html('<span style="color: #1E9FFF;">上传进度: ' + percent + '%</span>');
-                        },
-                        function(res) {
-                            if(res.code == 1){
-                                $('#wechat_receipt_image').val(res.url);
-                                $('#wechat_receipt_text').html('<span style="color: #5FB878;">上传成功</span>');
-                            } else {
-                                $('#wechat_receipt_text').html('<span style="color: #FF5722;">上传失败：' + (res.info || '未知错误') + '</span>');
+                    // 压缩图片
+                    $('#wechat_receipt_text').html('<span style="color: #1E9FFF;">正在上传第' + (fileIndex + 1) + '张图片...</span>');
+                    compressImage(file, 1920, 1920, 0.8, function(compressedBlob){
+                        // 上传压缩后的图片
+                        uploadCompressedImage(
+                            compressedBlob,
+                            file.name.replace(/\.[^/.]+$/, '.jpg'),
+                            '{:url("UpFiles/upload")}',
+                            function(percent) {
+                                $('#wechat_receipt_text').html('<span style="color: #1E9FFF;">上传进度: ' + percent + '%</span>');
+                            },
+                            function(res) {
+                                if(res.code == 1){
+                                    var currentList = getWechatList();
+                                    if (currentList.length < WECHAT_IMG_MAX) {
+                                        currentList.push(res.url);
+                                        setWechatList(currentList);
+                                        renderWechatPreview();
+                                        $('#wechat_receipt_text').html('<span style="color: #5FB878;">上传成功（' + currentList.length + '/' + WECHAT_IMG_MAX + '）</span>');
+                                    } else {
+                                        $('#wechat_receipt_text').html('<span style="color: #FF5722;">已达到最大上传数量</span>');
+                                    }
+                                } else {
+                                    $('#wechat_receipt_text').html('<span style="color: #FF5722;">上传失败：' + (res.info || '未知错误') + '</span>');
+                                }
+                            },
+                            function(error) {
+                                $('#wechat_receipt_text').html('<span style="color: #FF5722;">上传失败：' + error + '</span>');
                             }
-                        },
-                        function(error) {
-                            $('#wechat_receipt_text').html('<span style="color: #FF5722;">上传失败：' + error + '</span>');
-                        }
-                    );
+                        );
+                    });
                 });
+                
+                // 清空input，以便下次可以选择相同文件
+                wechatReceiptInput.val('');
             });
+            
+            // 初始化预览
+            renderWechatPreview();
 
             // 产品询盘分配图上传 - 使用隐藏的input
             var inquiryAssignInput = $('<input type="file" accept="image/*" style="display:none;" id="inquiry_assign_input">');
@@ -1592,15 +1667,15 @@
                 return false;
             }
 
-            // 检查两个图片是否已上传
-            var wechatReceiptImage = $('#wechat_receipt_image').val();
-            var inquiryAssignImage = $('#inquiry_assign_image').val();
-            
-            if (!wechatReceiptImage || wechatReceiptImage.trim() === '') {
-                layer.msg('请上传客户微信回执图', { icon: 2, time: 2000 });
+            // 检查微信沟通凭证图片数量
+            var wechatList = getWechatList();
+            if (wechatList.length < WECHAT_IMG_MIN) {
+                layer.msg('微信沟通凭证至少上传' + WECHAT_IMG_MIN + '张', { icon: 2, time: 2000 });
                 return false;
             }
             
+            // 检查产品询盘分配图是否已上传
+            var inquiryAssignImage = $('#inquiry_assign_image').val();
             if (!inquiryAssignImage || inquiryAssignImage.trim() === '') {
                 layer.msg('请上传产品询盘分配图', { icon: 2, time: 2000 });
                 return false;

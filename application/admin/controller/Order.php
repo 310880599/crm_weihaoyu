@@ -264,6 +264,49 @@ class Order extends Common
     
     
 
+    /**
+     * 规范化图片JSON数组字符串
+     * 输入可能是：JSON数组字符串、单字符串、空/NULL
+     * 输出：合法的JSON数组字符串（默认 []）
+     * 
+     * @param mixed $val 输入值
+     * @return string JSON数组字符串
+     */
+    private function normalizeImageJson($val): string
+    {
+        // 如果为空或null，返回空数组JSON
+        if (empty($val) && $val !== '0') {
+            return '[]';
+        }
+        
+        // 如果是数组，直接转JSON
+        if (is_array($val)) {
+            return json_encode($val, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
+        
+        // 如果是字符串
+        if (is_string($val)) {
+            $val = trim($val);
+            // 如果为空字符串，返回空数组JSON
+            if ($val === '') {
+                return '[]';
+            }
+            
+            // 尝试解析JSON
+            $decoded = json_decode($val, true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                // 是合法的JSON数组，直接返回
+                return json_encode($decoded, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            }
+            
+            // 不是JSON数组，可能是老格式的单字符串，包装成数组
+            return json_encode([$val], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        }
+        
+        // 其他类型，返回空数组JSON
+        return '[]';
+    }
+
     // 新建订单第3版
     public function add()
     {
@@ -432,7 +475,14 @@ class Order extends Common
             $data['split_remarks']    = Request::param('split_remarks');  // 分成备注
             $data['amount_received']  = Request::param('amount_received'); // 已收款金额
             //$data['remark']           = Request::param('remark');         // 备注
-            $data['wechat_receipt_image'] = Request::param('wechat_receipt_image', ''); // 客户微信回执图
+            // 规范化微信沟通凭证图片字段为JSON数组字符串
+            $wechatReceiptImageRaw = Request::param('wechat_receipt_image', '');
+            $data['wechat_receipt_image'] = $this->normalizeImageJson($wechatReceiptImageRaw);
+            // 后端校验：至少1张图片
+            $wechatImageList = json_decode($data['wechat_receipt_image'], true);
+            if (empty($wechatImageList) || !is_array($wechatImageList) || count($wechatImageList) < 1) {
+                return json(['code' => 0, 'msg' => '微信沟通凭证至少上传1张']);
+            }
             $data['inquiry_assign_image'] = Request::param('inquiry_assign_image', ''); // 产品询盘分配图
             $managerIds   = Request::param('product_manager/a'); // ★ 产品经理（管理员）ID 数组
             $data['status']           = '待审核';
