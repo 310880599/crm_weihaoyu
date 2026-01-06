@@ -1400,11 +1400,18 @@
             // 微信沟通凭证多图上传相关函数
             // 获取图片列表
             function getWechatList() {
-                var val = $('#wechat_receipt_image').val() || '[]';
+                var val = $('#wechat_receipt_image').val() || '';
+                if (val === '' || val === '[]') {
+                    return [];
+                }
                 try {
                     var list = JSON.parse(val);
-                    return Array.isArray(list) ? list : [];
-                } catch(e) {
+                    return Array.isArray(list) ? list.filter(function (v) { return v; }).map(String) : [];
+                } catch (e) {
+                    // 兼容旧格式：单个字符串
+                    if (typeof val === 'string' && val.trim() !== '') {
+                        return [val.trim()];
+                    }
                     return [];
                 }
             }
@@ -1414,11 +1421,12 @@
                 if (!Array.isArray(list)) {
                     list = [];
                 }
+                list = list.map(function (v) { return v == null ? '' : String(v); }).filter(function (v) { return v !== ''; });
                 $('#wechat_receipt_image').val(JSON.stringify(list));
             }
             
-            // 渲染预览
-            function renderWechatPreview() {
+            // 渲染缩略图列表
+            function renderWechatThumbs() {
                 var list = getWechatList();
                 var $preview = $('#wechatReceiptPreview');
                 $preview.empty();
@@ -1428,25 +1436,49 @@
                     return;
                 }
                 
-                $preview.show();
-                list.forEach(function(url, index) {
-                    var $item = $('<div style="position: relative; width: 120px; height: 120px; margin-bottom: 10px;">' +
-                        '<img src="' + url + '" class="js-img-preview" style="width: 100%; height: 100%; object-fit: cover; border: 1px solid #ddd; border-radius: 4px; cursor: zoom-in;">' +
-                        '<button type="button" class="wechat-img-delete" data-index="' + index + '" style="position: absolute; top: -8px; right: -8px; width: 24px; height: 24px; border-radius: 50%; background: #FF5722; color: #fff; border: none; cursor: pointer; font-size: 14px; line-height: 24px; text-align: center;">×</button>' +
+                $preview.show().css({ display: 'flex', flexWrap: 'wrap', gap: '10px' });
+                list.forEach(function (url, index) {
+                    var $item = $('<div class="wechat-thumb-item" style="position: relative; width: 120px; height: 120px; margin-bottom: 10px; flex: 0 0 auto;">' +
+                        '<img src="' + url + '" class="js-wechat-preview" data-idx="' + index + '" style="width: 100%; height: 100%; object-fit: cover; border: 1px solid #ddd; border-radius: 4px; cursor: zoom-in;">' +
+                        '<button type="button" class="js-wechat-del" data-idx="' + index + '" style="position: absolute; top: -8px; right: -8px; width: 24px; height: 24px; border-radius: 50%; background: #FF5722; color: #fff; border: none; cursor: pointer; font-size: 14px; line-height: 24px; text-align: center;">×</button>' +
                         '</div>');
                     $preview.append($item);
                 });
             }
             
-            // 删除图片
-            $(document).on('click', '.wechat-img-delete', function() {
-                var index = parseInt($(this).data('index'));
+            // 相册式预览
+            function openWechatAlbum(startIndex) {
                 var list = getWechatList();
-                if (index >= 0 && index < list.length) {
+                if (!list.length) return;
+                var start = parseInt(startIndex, 10);
+                if (isNaN(start) || start < 0) start = 0;
+                var photos = {
+                    title: '客户微信回执图',
+                    id: 1,
+                    start: start,
+                    data: list.map(function (url, i) {
+                        return { alt: String(i + 1), pid: i + 1, src: url, thumb: url };
+                    })
+                };
+                layer.photos({ photos: photos, anim: 5 });
+            }
+            
+            // 删除图片（事件委托）
+            $(document).on('click', '.js-wechat-del', function() {
+                var index = parseInt($(this).data('idx'), 10);
+                var list = getWechatList();
+                if (!isNaN(index) && index >= 0 && index < list.length) {
                     list.splice(index, 1);
                     setWechatList(list);
-                    renderWechatPreview();
+                    renderWechatThumbs();
                 }
+            });
+            
+            // 缩略图点击预览（事件委托）
+            $(document).on('click', '.js-wechat-preview', function() {
+                var index = parseInt($(this).data('idx'), 10);
+                if (isNaN(index)) index = 0;
+                openWechatAlbum(index);
             });
             
             // 客户微信回执图上传 - 多图上传
@@ -1456,7 +1488,7 @@
             $('#btnWechatReceipt').on('click', function() {
                 var list = getWechatList();
                 if (list.length >= WECHAT_IMG_MAX) {
-                    layer.msg('最多只能上传' + WECHAT_IMG_MAX + '张图片', {icon: 2});
+                    layer.msg('最多上传' + WECHAT_IMG_MAX + '张', {icon: 2});
                     return;
                 }
                 wechatReceiptInput.click();
@@ -1469,7 +1501,7 @@
                 var list = getWechatList();
                 var remaining = WECHAT_IMG_MAX - list.length;
                 if (remaining <= 0) {
-                    layer.msg('最多只能上传' + WECHAT_IMG_MAX + '张图片', {icon: 2});
+                    layer.msg('最多上传' + WECHAT_IMG_MAX + '张', {icon: 2});
                     wechatReceiptInput.val('');
                     return;
                 }
@@ -1498,14 +1530,15 @@
                             function(res) {
                                 if(res.code == 1){
                                     var currentList = getWechatList();
-                                    if (currentList.length < WECHAT_IMG_MAX) {
-                                        currentList.push(res.url);
-                                        setWechatList(currentList);
-                                        renderWechatPreview();
-                                        $('#wechat_receipt_text').html('<span style="color: #5FB878;">上传成功（' + currentList.length + '/' + WECHAT_IMG_MAX + '）</span>');
-                                    } else {
+                                    if (currentList.length >= WECHAT_IMG_MAX) {
+                                        layer.msg('最多上传' + WECHAT_IMG_MAX + '张', {icon: 2});
                                         $('#wechat_receipt_text').html('<span style="color: #FF5722;">已达到最大上传数量</span>');
+                                        return;
                                     }
+                                    currentList.push(res.url);
+                                    setWechatList(currentList);
+                                    renderWechatThumbs();
+                                    $('#wechat_receipt_text').html('<span style="color: #5FB878;">上传成功（' + currentList.length + '/' + WECHAT_IMG_MAX + '）</span>');
                                 } else {
                                     $('#wechat_receipt_text').html('<span style="color: #FF5722;">上传失败：' + (res.info || '未知错误') + '</span>');
                                 }
@@ -1522,7 +1555,7 @@
             });
             
             // 初始化预览
-            renderWechatPreview();
+            renderWechatThumbs();
 
             // 产品询盘分配图上传 - 使用隐藏的input
             var inquiryAssignInput = $('<input type="file" accept="image/*" style="display:none;" id="inquiry_assign_input">');
