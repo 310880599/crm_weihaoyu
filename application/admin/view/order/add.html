@@ -1477,6 +1477,49 @@
                 updateWechatReceiptText(); // 渲染后统一刷新提示文案
             }
             
+            // 确保相册预览关闭按钮存在并置顶
+            function ensureWechatAlbumCloseBtn(layerIndex, layero) {
+                if (!layero || layerIndex === undefined || layerIndex === null) return;
+                
+                // 查找或创建关闭按钮
+                var $btn = layero.find('.wechat-album-close-btn');
+                
+                if ($btn.length === 0) {
+                    // 按钮不存在，创建它
+                    $btn = $('<div class="wechat-album-close-btn">×</div>');
+                    // 将按钮添加到 layero 的最外层容器
+                    layero.append($btn);
+                } else {
+                    // 按钮已存在，确保它在最上层（重新 append 以提升层级）
+                    $btn.detach();
+                    layero.append($btn);
+                }
+                
+                // 确保按钮有足够高的 z-index
+                $btn.css({
+                    'position': 'absolute',
+                    'top': '12px',
+                    'right': '12px',
+                    'width': '34px',
+                    'height': '34px',
+                    'line-height': '34px',
+                    'text-align': 'center',
+                    'background': '#e74c3c',
+                    'color': '#fff',
+                    'border-radius': '50%',
+                    'font-size': '22px',
+                    'cursor': 'pointer',
+                    'z-index': '999999'
+                });
+                
+                // 绑定点击事件（使用 off 防止重复绑定）
+                $btn.off('click.wechatClose').on('click.wechatClose', function(e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    layer.close(layerIndex);
+                });
+            }
+            
             // 相册式预览
             function openWechatAlbum(startIndex) {
                 var list = getWechatList();
@@ -1491,15 +1534,45 @@
                         return { alt: String(i + 1), pid: i + 1, src: url, thumb: url };
                     })
                 };
-                var idx = layer.photos({ photos: photos, anim: 5 });
-                
-                // 延迟注入关闭按钮，确保 layer DOM 已渲染
-                setTimeout(function(){
-                    $('.wechat-album-close-btn').remove();
-                    var $layer = $('.layui-layer').last(); // 当前最上层相册
-                    if(!$layer.length) return;
-                    $layer.append('<div class="wechat-album-close-btn">×</div>');
-                }, 50);
+                var layerIndex = layer.photos({ 
+                    photos: photos, 
+                    anim: 5,
+                    success: function(layero, index) {
+                        // 相册打开成功后，确保关闭按钮存在
+                        var $layero = $(layero);
+                        // 查找最外层的 .layui-layer 容器
+                        var $layer = $layero.closest('.layui-layer');
+                        if (!$layer.length) {
+                            $layer = $layero;
+                        }
+                        ensureWechatAlbumCloseBtn(index, $layer);
+                    },
+                    tab: function(pic, layero) {
+                        // 每次切换图片时，确保关闭按钮存在并置顶
+                        var $layero = $(layero);
+                        // 查找最外层的 .layui-layer 容器
+                        var $layer = $layero.closest('.layui-layer');
+                        if (!$layer.length) {
+                            $layer = $layero;
+                        }
+                        // 获取 layer 索引
+                        var layerIdx = $layer.attr('times');
+                        if (layerIdx) {
+                            ensureWechatAlbumCloseBtn(parseInt(layerIdx, 10), $layer);
+                        } else {
+                            // 如果找不到 times，使用当前最上层的 layer
+                            var $topLayer = $('.layui-layer').last();
+                            if ($topLayer.length) {
+                                var topIdx = $topLayer.attr('times');
+                                if (topIdx) {
+                                    ensureWechatAlbumCloseBtn(parseInt(topIdx, 10), $topLayer);
+                                } else {
+                                    ensureWechatAlbumCloseBtn(layerIndex, $topLayer);
+                                }
+                            }
+                        }
+                    }
+                });
             }
             
             // 删除图片（事件委托）
