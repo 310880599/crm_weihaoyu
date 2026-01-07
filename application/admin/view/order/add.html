@@ -85,6 +85,44 @@
     .wechat-album-close-btn:hover {
         background: #c0392b;
     }
+    .photo-zoom-toolbar {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        display: flex;
+        gap: 6px;
+        z-index: 999998;
+        background: rgba(0, 0, 0, 0.45);
+        padding: 6px;
+        border-radius: 6px;
+        backdrop-filter: blur(2px);
+    }
+    .photo-zoom-toolbar .photo-zoom-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 4px;
+        background: #2f3b52;
+        color: #fff;
+        font-size: 16px;
+        cursor: pointer;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        transition: all 0.15s ease-in-out;
+        user-select: none;
+    }
+    .photo-zoom-toolbar .photo-zoom-btn:hover {
+        background: #1e9fff;
+        border-color: #1e9fff;
+        box-shadow: 0 0 6px rgba(30, 159, 255, 0.4);
+    }
+    .photo-zoom-toolbar .photo-zoom-btn:active {
+        transform: translateY(1px);
+    }
+    .photo-zoom-dragging {
+        user-select: none !important;
+    }
     </style>
 </head>
 
@@ -1519,6 +1557,233 @@
                     layer.close(layerIndex);
                 });
             }
+
+            function getWechatPhotoLayer($layero) {
+                var $layer = $layero.closest('.layui-layer');
+                if (!$layer.length) {
+                    $layer = $layero;
+                }
+                return $layer;
+            }
+
+            function getCurrentWechatPhotoImg($layer) {
+                var $imgs = $layer.find('.layui-layer-photos .layui-layer-content img');
+                if ($imgs.length === 0) {
+                    return $();
+                }
+                var $visible = $imgs.filter(':visible');
+                return $visible.length ? $visible.first() : $imgs.first();
+            }
+
+            function resetWechatPhotoTransform(state, $img) {
+                state.scale = 1;
+                state.translateX = 0;
+                state.translateY = 0;
+                if ($img && $img.length) {
+                    $img.css({
+                        transform: 'translate3d(0px, 0px, 0) scale(1)',
+                        transformOrigin: '0 0',
+                        cursor: 'grab'
+                    });
+                }
+            }
+
+            function applyWechatPhotoTransform(state, $img) {
+                if (!$img || !$img.length) return;
+                $img.css({
+                    transform: 'translate3d(' + state.translateX + 'px, ' + state.translateY + 'px, 0) scale(' + state.scale + ')',
+                    transformOrigin: '0 0'
+                });
+            }
+
+            function ensureWechatPhotoToolbar($layer) {
+                var $toolbar = $layer.find('.js-photo-zoom-toolbar');
+                if ($toolbar.length === 0) {
+                    $toolbar = $('<div class="photo-zoom-toolbar js-photo-zoom-toolbar">' +
+                        '<div class="photo-zoom-btn js-photo-zoom-in" title="放大">+</div>' +
+                        '<div class="photo-zoom-btn js-photo-zoom-out" title="缩小">-</div>' +
+                        '<div class="photo-zoom-btn js-photo-zoom-reset" title="重置">⟲</div>' +
+                        '</div>');
+                    $layer.append($toolbar);
+                } else {
+                    $toolbar.detach();
+                    $layer.append($toolbar);
+                }
+                return $toolbar;
+            }
+
+            function cleanupPhotoZoom(layerIndex, $layer) {
+                var ns = '.photoZoom' + layerIndex;
+                $(document).off('mousemove' + ns).off('mouseup' + ns);
+                if ($layer && $layer.length) {
+                    $layer.off(ns);
+                    var observer = $layer.data('photoZoomObserver');
+                    if (observer) {
+                        observer.disconnect();
+                        $layer.removeData('photoZoomObserver');
+                    }
+                    $layer.removeData('photoZoomBound');
+                    $layer.removeData('photoZoomState');
+                }
+                $('body').removeClass('photo-zoom-dragging');
+            }
+
+            function initPhotoZoomControls(layerIndex, layero) {
+                if (layerIndex === undefined || layerIndex === null) return;
+                var $layer = getWechatPhotoLayer($(layero));
+                if (!$layer.length) return;
+
+                var ns = '.photoZoom' + layerIndex;
+                ensureWechatPhotoToolbar($layer);
+
+                var state = $layer.data('photoZoomState');
+                if (!state) {
+                    state = {
+                        scale: 1,
+                        translateX: 0,
+                        translateY: 0,
+                        minScale: 0.2,
+                        maxScale: 5,
+                        dragging: false,
+                        startX: 0,
+                        startY: 0,
+                        startTranslateX: 0,
+                        startTranslateY: 0,
+                        currentSrc: ''
+                    };
+                    $layer.data('photoZoomState', state);
+                }
+
+                var $img = getCurrentWechatPhotoImg($layer);
+                if ($img.length) {
+                    var currentSrc = $img.attr('src') || '';
+                    if (currentSrc !== state.currentSrc) {
+                        state.currentSrc = currentSrc;
+                        resetWechatPhotoTransform(state, $img);
+                    }
+                    $img.attr('draggable', 'false').css({
+                        userSelect: 'none',
+                        WebkitUserDrag: 'none'
+                    });
+                }
+
+                if (!$layer.data('photoZoomBound')) {
+                    $layer.data('photoZoomBound', true);
+                    $layer.off(ns);
+
+                    $layer.on('click' + ns, '.js-photo-zoom-in', function(e) {
+                        e.preventDefault();
+                        var $target = getCurrentWechatPhotoImg($layer);
+                        if (!$target.length) return;
+                        var rect = $target[0].getBoundingClientRect();
+                        var offsetX = rect.width / 2;
+                        var offsetY = rect.height / 2;
+                        var nextScale = Math.min(state.maxScale, parseFloat((state.scale + 0.1).toFixed(2)));
+                        if (nextScale === state.scale) return;
+                        var ratio = nextScale / state.scale;
+                        state.translateX = state.translateX - offsetX * (ratio - 1);
+                        state.translateY = state.translateY - offsetY * (ratio - 1);
+                        state.scale = nextScale;
+                        applyWechatPhotoTransform(state, $target);
+                    });
+
+                    $layer.on('click' + ns, '.js-photo-zoom-out', function(e) {
+                        e.preventDefault();
+                        var $target = getCurrentWechatPhotoImg($layer);
+                        if (!$target.length) return;
+                        var rect = $target[0].getBoundingClientRect();
+                        var offsetX = rect.width / 2;
+                        var offsetY = rect.height / 2;
+                        var nextScale = Math.max(state.minScale, parseFloat((state.scale - 0.1).toFixed(2)));
+                        if (nextScale === state.scale) return;
+                        var ratio = nextScale / state.scale;
+                        state.translateX = state.translateX - offsetX * (ratio - 1);
+                        state.translateY = state.translateY - offsetY * (ratio - 1);
+                        state.scale = nextScale;
+                        applyWechatPhotoTransform(state, $target);
+                    });
+
+                    $layer.on('click' + ns, '.js-photo-zoom-reset', function(e) {
+                        e.preventDefault();
+                        resetWechatPhotoTransform(state, getCurrentWechatPhotoImg($layer));
+                    });
+
+                    $layer.on('wheel' + ns, '.layui-layer-photos .layui-layer-content', function(e) {
+                        var $target = getCurrentWechatPhotoImg($layer);
+                        if (!$target.length) return;
+                        e.preventDefault();
+                        var originalEvent = e.originalEvent || e;
+                        var delta = originalEvent.deltaY || originalEvent.wheelDelta || 0;
+                        var step = delta > 0 ? -0.1 : 0.1;
+                        var nextScale = parseFloat((state.scale + step).toFixed(2));
+                        nextScale = Math.min(state.maxScale, Math.max(state.minScale, nextScale));
+                        if (nextScale === state.scale) return;
+                        var rect = $target[0].getBoundingClientRect();
+                        var offsetX = (originalEvent.clientX || 0) - rect.left;
+                        var offsetY = (originalEvent.clientY || 0) - rect.top;
+                        var ratio = nextScale / state.scale;
+                        state.translateX = state.translateX - offsetX * (ratio - 1);
+                        state.translateY = state.translateY - offsetY * (ratio - 1);
+                        state.scale = nextScale;
+                        applyWechatPhotoTransform(state, $target);
+                    });
+
+                    $layer.on('mousedown' + ns, '.layui-layer-photos img', function(e) {
+                        if (e.which !== 1) return;
+                        var $target = $(this);
+                        e.preventDefault();
+                        state.dragging = true;
+                        state.startX = e.clientX;
+                        state.startY = e.clientY;
+                        state.startTranslateX = state.translateX;
+                        state.startTranslateY = state.translateY;
+                        $target.css('cursor', 'grabbing');
+                        $('body').addClass('photo-zoom-dragging');
+
+                        $(document)
+                            .off('mousemove' + ns)
+                            .on('mousemove' + ns, function(ev) {
+                                if (!state.dragging) return;
+                                state.translateX = state.startTranslateX + (ev.clientX - state.startX);
+                                state.translateY = state.startTranslateY + (ev.clientY - state.startY);
+                                applyWechatPhotoTransform(state, $target);
+                            })
+                            .off('mouseup' + ns)
+                            .on('mouseup' + ns, function() {
+                                state.dragging = false;
+                                $target.css('cursor', 'grab');
+                                $('body').removeClass('photo-zoom-dragging');
+                            });
+                    });
+
+                    $layer.on('dragstart' + ns, '.layui-layer-photos img', function(e) {
+                        e.preventDefault();
+                    });
+                }
+
+                if (!$layer.data('photoZoomObserver')) {
+                    var targetNode = $layer.find('.layui-layer-photos')[0];
+                    if (targetNode) {
+                        var observer = new MutationObserver(function() {
+                            ensureWechatPhotoToolbar($layer);
+                            var $currentImg = getCurrentWechatPhotoImg($layer);
+                            if ($currentImg.length) {
+                                var imgSrc = $currentImg.attr('src') || '';
+                                if (imgSrc !== state.currentSrc) {
+                                    state.currentSrc = imgSrc;
+                                    resetWechatPhotoTransform(state, $currentImg);
+                                }
+                                $currentImg.attr('draggable', 'false').css({
+                                    userSelect: 'none',
+                                    WebkitUserDrag: 'none'
+                                });
+                            }
+                        });
+                        observer.observe(targetNode, { childList: true, subtree: true });
+                        $layer.data('photoZoomObserver', observer);
+                    }
+                }
+            }
             
             // 相册式预览
             function openWechatAlbum(startIndex) {
@@ -1539,22 +1804,13 @@
                     anim: 5,
                     success: function(layero, index) {
                         // 相册打开成功后，确保关闭按钮存在
-                        var $layero = $(layero);
-                        // 查找最外层的 .layui-layer 容器
-                        var $layer = $layero.closest('.layui-layer');
-                        if (!$layer.length) {
-                            $layer = $layero;
-                        }
+                        var $layer = getWechatPhotoLayer($(layero));
                         ensureWechatAlbumCloseBtn(index, $layer);
+                        initPhotoZoomControls(index, layero);
                     },
                     tab: function(pic, layero) {
                         // 每次切换图片时，确保关闭按钮存在并置顶
-                        var $layero = $(layero);
-                        // 查找最外层的 .layui-layer 容器
-                        var $layer = $layero.closest('.layui-layer');
-                        if (!$layer.length) {
-                            $layer = $layero;
-                        }
+                        var $layer = getWechatPhotoLayer($(layero));
                         // 获取 layer 索引
                         var layerIdx = $layer.attr('times');
                         if (layerIdx) {
@@ -1571,6 +1827,11 @@
                                 }
                             }
                         }
+                        initPhotoZoomControls(layerIdx ? parseInt(layerIdx, 10) : layerIndex, layero);
+                    },
+                    end: function() {
+                        var $layer = $('.layui-layer[times="' + layerIndex + '"]');
+                        cleanupPhotoZoom(layerIndex, $layer);
                     }
                 });
             }
