@@ -66,6 +66,25 @@
     background-color: #FBFBFB;
     box-sizing: border-box;
 }
+    /* 微信回执图相册预览关闭按钮样式 */
+    .wechat-album-close-btn {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        width: 34px;
+        height: 34px;
+        line-height: 34px;
+        text-align: center;
+        background: #e74c3c;
+        color: #fff;
+        border-radius: 50%;
+        font-size: 22px;
+        cursor: pointer;
+        z-index: 999999;
+    }
+    .wechat-album-close-btn:hover {
+        background: #c0392b;
+    }
     </style>
 </head>
 
@@ -1425,6 +1444,16 @@
                 $('#wechat_receipt_image').val(JSON.stringify(list));
             }
             
+            // 统一刷新提示文案的函数
+            function updateWechatReceiptText() {
+                var len = getWechatList().length;
+                if (len <= 0) {
+                    $('#wechat_receipt_text').html('');
+                } else {
+                    $('#wechat_receipt_text').html('<span style="color:#5FB878;">上传成功（' + len + '/' + WECHAT_IMG_MAX + '）</span>');
+                }
+            }
+            
             // 渲染缩略图列表
             function renderWechatThumbs() {
                 var list = getWechatList();
@@ -1433,6 +1462,7 @@
                 
                 if (list.length === 0) {
                     $preview.hide();
+                    updateWechatReceiptText(); // 渲染后统一刷新提示文案
                     return;
                 }
                 
@@ -1444,6 +1474,7 @@
                         '</div>');
                     $preview.append($item);
                 });
+                updateWechatReceiptText(); // 渲染后统一刷新提示文案
             }
             
             // 相册式预览
@@ -1460,7 +1491,15 @@
                         return { alt: String(i + 1), pid: i + 1, src: url, thumb: url };
                     })
                 };
-                layer.photos({ photos: photos, anim: 5 });
+                var idx = layer.photos({ photos: photos, anim: 5 });
+                
+                // 延迟注入关闭按钮，确保 layer DOM 已渲染
+                setTimeout(function(){
+                    $('.wechat-album-close-btn').remove();
+                    var $layer = $('.layui-layer').last(); // 当前最上层相册
+                    if(!$layer.length) return;
+                    $layer.append('<div class="wechat-album-close-btn">×</div>');
+                }, 50);
             }
             
             // 删除图片（事件委托）
@@ -1470,7 +1509,7 @@
                 if (!isNaN(index) && index >= 0 && index < list.length) {
                     list.splice(index, 1);
                     setWechatList(list);
-                    renderWechatThumbs();
+                    renderWechatThumbs(); // renderWechatThumbs 内部已调用 updateWechatReceiptText
                 }
             });
             
@@ -1479,6 +1518,18 @@
                 var index = parseInt($(this).data('idx'), 10);
                 if (isNaN(index)) index = 0;
                 openWechatAlbum(index);
+            });
+            
+            // 相册预览关闭按钮点击事件（事件委托）
+            $(document).off('click', '.wechat-album-close-btn').on('click', '.wechat-album-close-btn', function(e){
+                e.stopPropagation();
+                var $layer = $(this).closest('.layui-layer');
+                var idx = $layer.attr('times');
+                if(idx) {
+                    layer.close(idx);
+                } else {
+                    layer.close(layer.index);
+                }
             });
             
             // 客户微信回执图上传 - 多图上传
@@ -1537,8 +1588,7 @@
                                     }
                                     currentList.push(res.url);
                                     setWechatList(currentList);
-                                    renderWechatThumbs();
-                                    $('#wechat_receipt_text').html('<span style="color: #5FB878;">上传成功（' + currentList.length + '/' + WECHAT_IMG_MAX + '）</span>');
+                                    renderWechatThumbs(); // renderWechatThumbs 内部已调用 updateWechatReceiptText
                                 } else {
                                     $('#wechat_receipt_text').html('<span style="color: #FF5722;">上传失败：' + (res.info || '未知错误') + '</span>');
                                 }
