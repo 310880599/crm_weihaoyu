@@ -565,6 +565,52 @@
                     $('#success-rate').text(res.successRate);
                 }
             });
+            // 辅助函数：将文本转换为数字
+            function parseNumber(text) {
+                if (!text) return 0;
+                var str = String(text).replace(/[^\d.-]/g, '');
+                var num = parseFloat(str);
+                return isNaN(num) ? 0 : num;
+            }
+
+            // 辅助函数：格式化数字，保留2位小数
+            function formatNumber(num) {
+                return parseFloat(num).toFixed(2);
+            }
+
+            // 更新统计区域：移除一行后更新统计数字
+            function updateSummaryAfterRemove(rowData) {
+                try {
+                    // 更新成交金额总计
+                    var $totalMoney = $('#total-money');
+                    if ($totalMoney.length) {
+                        var currentMoney = parseNumber($totalMoney.text());
+                        var removeMoney = parseNumber(rowData.money || 0);
+                        var newMoney = currentMoney - removeMoney;
+                        $totalMoney.text(formatNumber(newMoney >= 0 ? newMoney : 0));
+                    }
+
+                    // 更新利润总计
+                    var $totalProfit = $('#total-profit');
+                    if ($totalProfit.length) {
+                        var currentProfit = parseNumber($totalProfit.text());
+                        var removeProfit = parseNumber(rowData.profit || 0);
+                        var newProfit = currentProfit - removeProfit;
+                        $totalProfit.text(formatNumber(newProfit >= 0 ? newProfit : 0));
+                    }
+
+                    // 更新询盘数量（减1）
+                    var $totalInquiries = $('#total-inquiries');
+                    if ($totalInquiries.length) {
+                        var currentInquiries = parseInt($totalInquiries.text()) || 0;
+                        var newInquiries = currentInquiries - 1;
+                        $totalInquiries.text(newInquiries >= 0 ? newInquiries : 0);
+                    }
+                } catch (e) {
+                    console.error('更新统计区域出错:', e);
+                }
+            }
+
             table.on('tool(table-list)', function (obj) {
                 var data = obj.data;
 
@@ -611,17 +657,20 @@
                 // 审核通过
                 else if (obj.event === 'pass') {
                     layer.confirm('确认要通过此订单么？', function (index) {
+                        layer.close(index);
                         var loading = layer.load(1, { shade: [0.1, '#fff'] });
                         $.post("{:url('passIndex')}", { id: data.id }, function (res) {
                             layer.close(loading);
                             if (res.code === 0) {
                                 layer.msg(res.msg, { time: 1000, icon: 1 });
-                                tableIn.reload();
+                                // 更新统计区域
+                                updateSummaryAfterRemove(data);
+                                // 移除当前行
+                                obj.del();
                             } else {
                                 layer.msg(res.msg, { time: 2000, icon: 2 });
                             }
                         });
-                        layer.close(index);
                     });
                 }
 
@@ -644,6 +693,12 @@
                                 return;
                             }
 
+                            // 禁用确定按钮，防止重复点击
+                            var confirmBtn = $('.layui-layer-btn0');
+                            if (confirmBtn.length) {
+                                confirmBtn.prop('disabled', true).css('cursor', 'not-allowed');
+                            }
+
                             var loading = layer.load(1, { shade: [0.1, '#fff'] });
 
                             // 新增一个后端接口：Order/reject （你可以根据习惯改成别的）
@@ -655,9 +710,16 @@
                                 if (res.code === 0 || res.code === 1) {
                                     layer.msg(res.msg || '已拒绝该订单', { time: 1000, icon: 1 });
                                     layer.close(index);
-                                    tableIn.reload();
+                                    // 更新统计区域
+                                    updateSummaryAfterRemove(data);
+                                    // 移除当前行
+                                    obj.del();
                                 } else {
                                     layer.msg(res.msg || '操作失败', { time: 2000, icon: 2 });
+                                    // 恢复按钮状态
+                                    if (confirmBtn.length) {
+                                        confirmBtn.prop('disabled', false).css('cursor', 'pointer');
+                                    }
                                 }
                             });
                         }
