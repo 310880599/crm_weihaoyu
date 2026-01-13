@@ -550,8 +550,7 @@
             
             // 待审核总条数相关状态变量
             var pendingTotalCount = 0;
-            var lastKeyword = {}; // 保存当前筛选条件，供轮询接口使用
-            var pollingInterval = null; // 轮询定时器
+            var lastKeyword = {}; // 保存当前筛选条件，供 fetchPendingTotal 接口使用
             
             var tableIn = table.render({
                 elem: '#table-list',
@@ -920,8 +919,20 @@
                 ensurePendingTotalDom();
             }, 500);
             
-            // 启动轮询：每 15 秒获取一次最新待审核总数
-            pollingInterval = setInterval(fetchPendingTotal, 15000);
+            // 页面重新获得焦点时刷新待审核总条数（事件触发 + 节流）
+            var lastVisibilityRefreshTime = 0;
+            var visibilityThrottleMs = 2000; // 2秒内只允许触发一次
+            
+            document.addEventListener('visibilitychange', function() {
+                if (document.visibilityState === 'visible') {
+                    var now = Date.now();
+                    // 节流：2秒内只允许触发一次
+                    if (now - lastVisibilityRefreshTime >= visibilityThrottleMs) {
+                        lastVisibilityRefreshTime = now;
+                        fetchPendingTotal();
+                    }
+                }
+            });
 
         });
 
