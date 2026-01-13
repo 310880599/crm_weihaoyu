@@ -331,9 +331,21 @@
             display: none;
         }
         
-        /* ✅ 隐藏分页里的“共 X 条” */
+        /* ✅ 隐藏分页里的"共 X 条" */
         .layui-laypage .layui-laypage-count{
             display: none !important;
+        }
+        
+        /* 待审核总条数样式 */
+        #pending-total-wrap{
+            display:inline-block;
+            margin-left:12px;
+            font-size:13px;
+            color:#666;
+        }
+        
+        #pending-total-wrap b{
+            color:#333;
         }
     </style>
 
@@ -536,6 +548,11 @@
             defaultToolbar = ['filter', 'print', 'exports'];
             {/if}
             
+            // 待审核总条数相关状态变量
+            var pendingTotalCount = 0;
+            var lastKeyword = {}; // 保存当前筛选条件，供轮询接口使用
+            var pollingInterval = null; // 轮询定时器
+            
             var tableIn = table.render({
                 elem: '#table-list',
                 url: '{:url("pendingindex")}',
@@ -572,6 +589,8 @@
                     $('#total-profit').text(res.totalProfit);
                     $('#total-inquiries').text(res.totalInquiries);
                     $('#success-rate').text(res.successRate);
+                    // 渲染待审核总条数
+                    renderPendingTotal(count);
                 }
             });
             // 辅助函数：将文本转换为数字
@@ -585,6 +604,54 @@
             // 辅助函数：格式化数字，保留2位小数
             function formatNumber(num) {
                 return parseFloat(num).toFixed(2);
+            }
+            
+            // 确保待审核总条数 DOM 存在
+            function ensurePendingTotalDom() {
+                var $pageWrap = $('#table-list').next('.layui-table-view').find('.layui-table-page');
+                if ($pageWrap.length === 0) {
+                    // 如果找不到，尝试从 table-view 中查找
+                    $pageWrap = $('#table-list').closest('.layui-table-view').find('.layui-table-page');
+                }
+                if ($pageWrap.length > 0) {
+                    var $existing = $pageWrap.find('#pending-total-wrap');
+                    if ($existing.length === 0) {
+                        // 在 .layui-laypage 后面添加
+                        var $laypage = $pageWrap.find('.layui-laypage');
+                        if ($laypage.length > 0) {
+                            $laypage.after('<span id="pending-total-wrap">待审核总条数：<b>0</b></span>');
+                        } else {
+                            // 如果找不到 laypage，直接 append 到 pageWrap
+                            $pageWrap.append('<span id="pending-total-wrap">待审核总条数：<b>0</b></span>');
+                        }
+                    }
+                }
+            }
+            
+            // 渲染待审核总条数
+            function renderPendingTotal(count) {
+                pendingTotalCount = count || 0;
+                ensurePendingTotalDom();
+                var $wrap = $('#pending-total-wrap');
+                if ($wrap.length > 0) {
+                    $wrap.html('待审核总条数：<b>' + pendingTotalCount + '</b>');
+                }
+            }
+            
+            // 调整待审核总条数（本地扣减）
+            function adjustPendingTotal(delta) {
+                renderPendingTotal(Math.max(0, pendingTotalCount + delta));
+            }
+            
+            // 获取待审核总数（轮询接口）
+            function fetchPendingTotal() {
+                $.post("{:url('Order/pendingCount')}", { 
+                    keyword: lastKeyword 
+                }, function(r) {
+                    if (r && r.code === 0) {
+                        renderPendingTotal(r.count);
+                    }
+                });
             }
 
             // 更新统计区域：移除一行后更新统计数字
@@ -674,8 +741,12 @@
                                 layer.msg(res.msg, { time: 1000, icon: 1 });
                                 // 更新统计区域
                                 updateSummaryAfterRemove(data);
+                                // 调整待审核总条数（本地减1）
+                                adjustPendingTotal(-1);
                                 // 移除当前行
                                 obj.del();
+                                // 审核成功后延迟拉取一次兜底
+                                setTimeout(fetchPendingTotal, 800);
                             } else {
                                 layer.msg(res.msg, { time: 2000, icon: 2 });
                             }
@@ -721,8 +792,12 @@
                                     layer.close(index);
                                     // 更新统计区域
                                     updateSummaryAfterRemove(data);
+                                    // 调整待审核总条数（本地减1）
+                                    adjustPendingTotal(-1);
                                     // 移除当前行
                                     obj.del();
+                                    // 审核成功后延迟拉取一次兜底
+                                    setTimeout(fetchPendingTotal, 800);
                                 } else {
                                     layer.msg(res.msg || '操作失败', { time: 2000, icon: 2 });
                                     // 恢复按钮状态
@@ -819,6 +894,8 @@
             //监听搜索
             form.on('submit(LAY-app-contlist-search)', function (data) {
                 var field = data.field;
+                // 保存当前筛选条件，供轮询接口使用
+                lastKeyword = data.field || {};
                 table.reload('table-list', {
                     url: "{:url('Order/pendingClientSearch')}",
                     where: {
@@ -837,6 +914,14 @@
             laydate.render({
                 elem: '#create_time'
             });
+            
+            // 初始化待审核总条数 DOM（延迟执行，确保表格已渲染）
+            setTimeout(function() {
+                ensurePendingTotalDom();
+            }, 500);
+            
+            // 启动轮询：每 15 秒获取一次最新待审核总数
+            pollingInterval = setInterval(fetchPendingTotal, 15000);
 
         });
 

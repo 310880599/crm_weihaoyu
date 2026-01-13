@@ -3423,6 +3423,104 @@ class Order extends Common
         ];
     }
 
+    /**
+     * 获取待审核订单总数（用于轮询更新）
+     * 复用 pendingClientSearch 的权限过滤和条件过滤逻辑
+     */
+    public function pendingCount()
+    {
+        if (!request()->isPost() && !request()->isAjax()) {
+            return json(['code' => 500, 'msg' => '请求方式错误']);
+        }
+        
+        $where = [];
+        $aid = Session::get('aid');
+        $pr_user = Session::get('username') ?? '';
+        
+        // 判断是否"可看全部"
+        $groupId = Db::name('admin')->where('admin_id', $aid)->value('group_id');
+        $canViewAll = ($aid == 1) || in_array(intval($groupId), [13, 15]);
+        
+        // 如果 $pr_user 为空：直接让 where 返回空（保持现有逻辑 id=0）
+        if (empty($pr_user)) {
+            $where[] = ['id', '=', 0];
+        } else {
+            // 如果不是 $canViewAll（普通用户）：在 $where 里追加闭包条件，限制只能看到自己的订单
+            if (!$canViewAll) {
+                $where[] = function($q) use ($pr_user) {
+                    $q->where('pr_user', '=', $pr_user)
+                      ->whereOr('at_user', '=', $pr_user);
+                };
+            }
+            // 如果是 $canViewAll（aid=1 或 group_id=13/15）：不要加 pr_user/at_user 限制
+        }
+        
+        $keyword = Request::param('keyword');
+        // 过滤掉 null 元素
+        if ($keyword) {
+            $keyword = array_filter($keyword);
+        }
+        
+        // 默认 timebucket=month（与 pendingindex 保持一致）
+        if (empty($keyword) || !isset($keyword['timebucket'])) {
+            if (!$keyword) {
+                $keyword = [];
+            }
+            $keyword['timebucket'] = 'month';
+        }
+        
+        // 待审核状态
+        $where[] = ['check_status', '=', 1];
+        
+        // 处理筛选条件（与 pendingClientSearch 保持一致）
+        if (isset($keyword['order_no'])) {
+            $where[] = ['order_no', 'like', "%{$keyword['order_no']}%"];
+        }
+        if (isset($keyword['timebucket'])) {
+            $where[] = $this->buildTimeWhere($keyword['timebucket'], 'order_time');
+        }
+        if (isset($keyword['min_money'])) {
+            $where[] = ['money', '>', $keyword['min_money']];
+        }
+        if (isset($keyword['max_money'])) {
+            $where[] = ['money', '<', $keyword['max_money']];
+        }
+        if (isset($keyword['min_profit'])) {
+            $where[] = ['profit', '>', $keyword['min_profit']];
+        }
+        if (isset($keyword['max_profit'])) {
+            $where[] = ['profit', '<', $keyword['max_profit']];
+        }
+        if (isset($keyword['min_margin_rate'])) {
+            $where[] = ['margin_rate', '>', $keyword['min_margin_rate']];
+        }
+        if (isset($keyword['max_margin_rate'])) {
+            $where[] = ['margin_rate', '<', $keyword['max_margin_rate']];
+        }
+        if (isset($keyword['cname'])) {
+            $where[] = ['cname', 'like', "%{$keyword['cname']}%"];
+        }
+        if (isset($keyword['contact'])) {
+            $where[] = ['contact', 'like', "%{$keyword['contact']}%"];
+        }
+        if (isset($keyword['customer_type'])) {
+            $where[] = ['customer_type', '=', $keyword['customer_type']];
+        }
+        if (isset($keyword['product_name'])) {
+            $where[] = ['product_name', 'like', "%{$keyword['product_name']}%"];
+        }
+        if (isset($keyword['source'])) {
+            $where[] = ['source', '=', $keyword['source']];
+        }
+        
+        // 只返回 count，不返回 data
+        $total = Db::table('crm_client_order')
+            ->where($where)
+            ->count();
+        
+        return json(['code' => 0, 'msg' => 'ok', 'count' => $total]);
+    }
+
 
     public function failedClientSearch()
     {
